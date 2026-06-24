@@ -13,10 +13,12 @@ interface VaultState {
   familyKey: CryptoKey | null
   sessionReady: boolean
   currentUser: CurrentUser | null
+  isUploading: boolean
   
   setMasterKey: (key: CryptoKey | null) => void
   setFamilyKey: (key: CryptoKey | null) => void
   setCurrentUser: (user: CurrentUser | null) => void
+  setIsUploading: (isUploading: boolean) => void
   clearSession: () => void
 }
 
@@ -30,6 +32,7 @@ export const useVaultStore = create<VaultState>((set) => ({
   familyKey: null,
   sessionReady: false,
   currentUser: null,
+  isUploading: false,
   
   setMasterKey: (key) => set((state) => ({ 
     masterKey: key, 
@@ -46,6 +49,8 @@ export const useVaultStore = create<VaultState>((set) => ({
     // Session is ready when we have both a user and their decrypted master key
     sessionReady: user !== null && state.masterKey !== null
   })),
+  
+  setIsUploading: (isUploading) => set({ isUploading }),
   
   clearSession: () => set({ 
     masterKey: null, 

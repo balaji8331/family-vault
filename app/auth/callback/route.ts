@@ -58,7 +58,9 @@ export async function GET(request: NextRequest) {
 
   if (rpcError || !data || data.length === 0) {
     console.error('RPC get_user_role error or no data:', rpcError)
-    return NextResponse.redirect(`${origin}/login?error=no_profile`)
+    // Explicitly sign them out so they aren't stuck with an invalid session
+    await supabase.auth.signOut()
+    return NextResponse.redirect(`${origin}/login?error=unauthorized_email`)
   }
 
   const role = data[0].role
@@ -71,5 +73,6 @@ export async function GET(request: NextRequest) {
   }
 
   // Fallback in case of unexpected role
-  return NextResponse.redirect(`${origin}/login?error=no_profile`)
+  await supabase.auth.signOut()
+  return NextResponse.redirect(`${origin}/login?error=unauthorized_email`)
 }

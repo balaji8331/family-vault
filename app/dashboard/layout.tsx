@@ -6,6 +6,10 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase/client';
 import { useVaultStore } from '@/store/vault.store';
 import KeyInitModal from '@/components/auth/KeyInitModal';
+import { logAuditEvent } from '@/lib/audit';
+import { startKeepAlive, startAutoLogout } from '@/lib/session';
+import * as Dialog from '@radix-ui/react-dialog';
+import { Home, FileText, Upload, Users, Settings, Shield, Menu, X } from 'lucide-react';
 
 export default function DashboardLayout({
   children,
@@ -32,39 +36,28 @@ export default function DashboardLayout({
         return;
       }
 
-      // Fetch user role via RPC
       const { data: roleData, error: roleError } = await supabase.rpc('get_user_role', { 
         user_id: user.id 
       });
 
       if (roleError || !roleData || roleData.length === 0) {
-        console.error('Error fetching user role via RPC:', roleError);
         router.push('/login');
         return;
       }
 
       const role = roleData[0].role;
-
-      // Fetch user profile from public users table for full_name and family_id
-      const { data: profile, error: profileError } = await supabase
+      const { data: profile } = await supabase
         .from('users')
         .select('full_name, family_id')
         .eq('id', user.id)
         .single();
 
-      if (profileError) {
-        console.error('Error fetching user profile details:', profileError);
-      }
-
-      const fullName = profile?.full_name || '';
-      const familyId = profile?.family_id;
-
       setCurrentUser({
         id: user.id,
         email: user.email || '',
         role: role,
-        family_id: familyId || null,
-        full_name: fullName
+        family_id: profile?.family_id || null,
+        full_name: profile?.full_name || ''
       });
 
       setLoading(false);
@@ -73,7 +66,27 @@ export default function DashboardLayout({
     checkSession();
   }, [router, setCurrentUser]);
 
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    const cleanupKeepAlive = startKeepAlive();
+    const cleanupAutoLogout = startAutoLogout(() => {
+      // Prevent logout if currently uploading
+      if (useVaultStore.getState().isUploading) return;
+      
+      logAuditEvent('auto_logout', 'session', currentUser.id);
+      clearSession();
+      router.push('/login');
+    });
+
+    return () => {
+      cleanupKeepAlive();
+      cleanupAutoLogout();
+    };
+  }, [currentUser, clearSession, router]);
+
   const handleLogout = async () => {
+    await logAuditEvent('logout', 'system', currentUser?.id || 'unknown');
     await supabase.auth.signOut();
     clearSession();
     router.push('/login');
@@ -90,93 +103,128 @@ export default function DashboardLayout({
   const isAdminOrSuperAdmin = currentUser?.role === 'family_admin' || currentUser?.role === 'super_admin';
 
   const navLinks = [
-    { href: '/dashboard', label: 'Home', icon: HomeIcon },
-    { href: '/dashboard/documents', label: 'Documents', icon: DocumentIcon },
-    { href: '/dashboard/upload', label: 'Upload', icon: UploadIcon },
-    ...(isAdminOrSuperAdmin ? [{ href: '/dashboard/family', label: 'Family Members', icon: UsersIcon }] : []),
-    { href: '/dashboard/settings', label: 'Settings', icon: SettingsIcon },
+    { href: '/dashboard', label: 'Home', icon: Home },
+    { href: '/dashboard/documents', label: 'Documents', icon: FileText },
+    { href: '/dashboard/upload', label: 'Upload', icon: Upload },
+    ...(isAdminOrSuperAdmin ? [{ href: '/dashboard/family', label: 'Family', icon: Users }] : []),
+    { href: '/dashboard/settings', label: 'Settings', icon: Settings },
   ];
 
+  const renderNavLinks = (onClick?: () => void) => (
+    <nav className="flex-1 px-4 py-4 space-y-2">
+      {navLinks.map((link) => {
+        const isActive = pathname === link.href;
+        const Icon = link.icon;
+        return (
+          <Link
+            key={link.href}
+            href={link.href}
+            onClick={onClick}
+            className={`
+              flex items-center px-4 py-3 text-sm font-medium rounded-xl transition-colors
+              ${isActive 
+                ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' 
+                : 'text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800'}
+            `}
+          >
+            <Icon className={`w-5 h-5 mr-3 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'}`} />
+            {link.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col md:flex-row">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col md:flex-row pb-16 md:pb-0">
       {!sessionReady && <KeyInitModal />}
 
-      {/* Mobile Header */}
-      <div className="md:hidden bg-white dark:bg-gray-800 border-b dark:border-gray-700 p-4 flex justify-between items-center">
+      {/* Mobile Header with Hamburger Sheet */}
+      <div className="md:hidden bg-white dark:bg-gray-800 border-b dark:border-gray-700 p-4 flex justify-between items-center fixed top-0 w-full z-40">
         <span className="text-xl font-bold text-gray-800 dark:text-white">FamilyVault</span>
-        <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-gray-500 hover:text-gray-700 dark:text-gray-300">
-          <MenuIcon className="w-6 h-6" />
-        </button>
-      </div>
-
-      {/* Sidebar */}
-      <div className={`
-        ${isSidebarOpen ? 'block' : 'hidden'} 
-        md:block w-full md:w-64 bg-white dark:bg-gray-800 border-r dark:border-gray-700 flex-shrink-0
-      `}>
-        <div className="h-full flex flex-col">
-          <div className="p-6 hidden md:block">
-            <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">FamilyVault</span>
-          </div>
-
-          <nav className="flex-1 px-4 py-4 space-y-2">
-            {navLinks.map((link) => {
-              const isActive = pathname === link.href;
-              const Icon = link.icon;
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className={`
-                    flex items-center px-4 py-3 text-sm font-medium rounded-xl transition-colors
-                    ${isActive 
-                      ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' 
-                      : 'text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800'}
-                  `}
+        
+        <Dialog.Root open={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
+          <Dialog.Trigger asChild>
+            <button className="text-gray-500 hover:text-gray-700 dark:text-gray-300 p-2 -mr-2">
+              <Menu className="w-6 h-6" />
+            </button>
+          </Dialog.Trigger>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50 backdrop-blur-sm transition-opacity" />
+            <Dialog.Content className="fixed inset-y-0 right-0 z-50 w-3/4 max-w-sm bg-white dark:bg-gray-800 shadow-xl border-l border-gray-200 dark:border-gray-700 p-6 animate-in slide-in-from-right sm:duration-300">
+              <div className="flex items-center justify-between mb-8">
+                <Dialog.Title className="text-2xl font-bold text-blue-600 dark:text-blue-400">Vault Menu</Dialog.Title>
+                <Dialog.Close asChild>
+                  <button className="text-gray-400 hover:text-gray-500 rounded-full p-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                    <X className="w-5 h-5" />
+                  </button>
+                </Dialog.Close>
+              </div>
+              {renderNavLinks(() => setIsSidebarOpen(false))}
+              <div className="mt-8 px-4">
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center justify-center px-4 py-3 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
                 >
-                  <Icon className={`w-5 h-5 mr-3 ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'}`} />
-                  {link.label}
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
+                  Logout
+                </button>
+              </div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Top bar */}
-        <header className="bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700">
-          <div className="px-6 py-4 flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-gray-800 dark:text-white hidden md:block">
-              {navLinks.find(l => l.href === pathname)?.label || 'Dashboard'}
-            </h2>
-            <div className="flex items-center space-x-4 ml-auto">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
-                {currentUser?.full_name}
-              </span>
-              <button
-                onClick={handleLogout}
-                className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
-              >
-                Logout
-              </button>
-            </div>
+      {/* Desktop Sidebar */}
+      <div className="hidden md:flex w-64 bg-white dark:bg-gray-800 border-r dark:border-gray-700 flex-shrink-0 flex-col fixed inset-y-0 z-30">
+        <div className="p-6">
+          <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">FamilyVault</span>
+        </div>
+        {renderNavLinks()}
+      </div>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 md:pl-64 pt-16 md:pt-0">
+        <header className="hidden md:flex bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700 px-6 py-4 items-center justify-between sticky top-0 z-20">
+          <h2 className="text-xl font-semibold text-gray-800 dark:text-white">
+            {navLinks.find(l => l.href === pathname)?.label || 'Dashboard'}
+          </h2>
+          <div className="flex items-center space-x-4">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+              {currentUser?.full_name}
+            </span>
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
+            >
+              Logout
+            </button>
           </div>
         </header>
 
-        <main className="flex-1 p-6 overflow-auto">
+        <main className="flex-1 p-4 md:p-6 overflow-auto">
           {children}
         </main>
+      </div>
+
+      {/* Mobile Bottom Navigation Bar */}
+      <div className="md:hidden fixed bottom-0 w-full bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex justify-around items-center p-2 pb-safe z-40">
+        {navLinks.slice(0, 5).map((link) => {
+          const isActive = pathname === link.href;
+          const Icon = link.icon;
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={`flex flex-col items-center justify-center w-16 h-14 rounded-lg transition-colors ${
+                isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+            >
+              <Icon className={`w-5 h-5 mb-1 ${isActive ? 'fill-blue-100 dark:fill-blue-900/50' : ''}`} />
+              <span className="text-[10px] font-medium">{link.label}</span>
+            </Link>
+          );
+        })}
       </div>
     </div>
   );
 }
-
-// Icons
-function HomeIcon(props: React.SVGProps<SVGSVGElement>) { return <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>; }
-function DocumentIcon(props: React.SVGProps<SVGSVGElement>) { return <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>; }
-function UploadIcon(props: React.SVGProps<SVGSVGElement>) { return <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>; }
-function UsersIcon(props: React.SVGProps<SVGSVGElement>) { return <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>; }
-function SettingsIcon(props: React.SVGProps<SVGSVGElement>) { return <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>; }
-function MenuIcon(props: React.SVGProps<SVGSVGElement>) { return <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>; }

@@ -8,6 +8,9 @@ export default function SettingsPage() {
   const currentUser = useVaultStore((state) => state.currentUser);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<any>(null);
+  const [phone, setPhone] = useState('');
+  const [isSavingPhone, setIsSavingPhone] = useState(false);
+  const [phoneMessage, setPhoneMessage] = useState({ type: '', text: '' });
 
   useEffect(() => {
     async function fetchProfile() {
@@ -15,12 +18,15 @@ export default function SettingsPage() {
       try {
         const { data, error } = await supabase
           .from('users')
-          .select('full_name, role, passkey_registered, created_at')
+          .select('full_name, role, passkey_registered, created_at, phone')
           .eq('id', currentUser.id)
           .single();
 
         if (error) console.error('Error fetching profile:', error);
-        else setProfile(data);
+        else {
+          setProfile(data);
+          setPhone(data.phone || '+91');
+        }
       } catch (err) {
         console.error('Failed to load settings:', err);
       } finally {
@@ -38,6 +44,27 @@ export default function SettingsPage() {
       </div>
     );
   }
+
+  const handleSavePhone = async () => {
+    if (!currentUser?.id) return;
+    setIsSavingPhone(true);
+    setPhoneMessage({ type: '', text: '' });
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ phone: phone === '+91' ? null : phone })
+        .eq('id', currentUser.id);
+        
+      if (error) throw error;
+      setPhoneMessage({ type: 'success', text: 'Phone number updated successfully' });
+    } catch (err: any) {
+      console.error('Failed to update phone:', err);
+      setPhoneMessage({ type: 'error', text: err.message || 'Failed to update phone' });
+    } finally {
+      setIsSavingPhone(false);
+      setTimeout(() => setPhoneMessage({ type: '', text: '' }), 4000);
+    }
+  };
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -69,6 +96,34 @@ export default function SettingsPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Role</label>
                 <div className="text-lg font-semibold text-gray-900 dark:text-white capitalize">{profile?.role?.replace('_', ' ') || currentUser?.role?.replace('_', ' ') || 'N/A'}</div>
+              </div>
+
+              <div className="pt-4 border-t border-gray-100 dark:border-gray-700">
+                <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">WhatsApp Notification Number</label>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <input 
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+919876543210"
+                    className="flex-1 px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white"
+                  />
+                  <button 
+                    onClick={handleSavePhone}
+                    disabled={isSavingPhone}
+                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl disabled:opacity-50 transition-colors"
+                  >
+                    {isSavingPhone ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+                {phoneMessage.text && (
+                  <p className={`text-sm mt-2 ${phoneMessage.type === 'error' ? 'text-red-500' : 'text-green-500'}`}>
+                    {phoneMessage.text}
+                  </p>
+                )}
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  Used for expiry reminders and document share notifications. Include country code (e.g. +91).
+                </p>
               </div>
             </div>
           </div>
