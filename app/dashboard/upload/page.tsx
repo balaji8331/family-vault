@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import { useVaultStore } from '@/store/vault.store';
 import { generateDocumentKey, encryptFile, wrapKey } from '@/lib/crypto';
+import { compressImage, compressPDF } from '@/lib/compress';
+import { extractDocumentMetadata } from '@/lib/ocr';
+import { logAuditEvent } from '@/lib/audit';
+import { ErrorToast } from '@/components/ui/ErrorToast';
 
 // Helper to convert an ArrayBuffer to a Base64 string for database storage.
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -40,6 +44,7 @@ export default function UploadPage() {
   const router = useRouter();
   const currentUser = useVaultStore((state) => state.currentUser);
   const masterKey = useVaultStore((state) => state.masterKey);
+  const setIsUploading = useVaultStore((state) => state.setIsUploading);
   
   const [file, setFile] = useState<File | null>(null);
   const [docType, setDocType] = useState('');
@@ -48,7 +53,8 @@ export default function UploadPage() {
   const [searchQuery, setSearchQuery] = useState('');
   
   const [isDragging, setIsDragging] = useState(false);
-  const [status, setStatus] = useState<'idle' | 'encrypting' | 'uploading' | 'saving' | 'done'>('idle');
+  const [status, setStatus] = useState<'idle' | 'compressing' | 'scanning' | 'encrypting' | 'uploading' | 'saving' | 'done'>('idle');
+  const [ocrProgress, setOcrProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const [docTypesList, setDocTypesList] = useState<{name: string, value: string}[]>(DEFAULT_DOC_TYPES);
@@ -114,22 +120,40 @@ export default function UploadPage() {
     
     setStatus('encrypting');
     setError(null);
+    setIsUploading(true);
     
     try {
-      // 1. Generate document key
+      // 1. Compress the file
+      setStatus('compressing');
+      let optimizedFile = file;
+      if (file.type.startsWith('image/')) {
+        optimizedFile = await compressImage(file);
+      } else if (file.type === 'application/pdf') {
+        optimizedFile = await compressPDF(file);
+      }
+      
+      // 2. OCR Scan
+      setStatus('scanning');
+      setOcrProgress(0);
+      const metadata = await extractDocumentMetadata(optimizedFile, docType, (progress) => {
+        setOcrProgress(progress);
+      });
+      
+      // 3. Generate document key
+      setStatus('encrypting');
       const docKey = await generateDocumentKey();
       
-      // 2. Encrypt the file
-      const { encryptedData, iv } = await encryptFile(file, docKey);
+      // 4. Encrypt the file
+      const { encryptedData, iv } = await encryptFile(optimizedFile, docKey);
       
-      // 3. Wrap the document key using master key
+      // 5. Wrap the document key using master key
       const wrappedKeyBuffer = await wrapKey(docKey, masterKey);
       
-      // 4. Convert IV and Wrapped Key to Base64
+      // 6. Convert IV and Wrapped Key to Base64
       const ivBase64 = arrayBufferToBase64(iv);
       const wrappedKeyBase64 = arrayBufferToBase64(wrappedKeyBuffer);
       
-      // 5. Upload encrypted blob
+      // 7. Upload encrypted blob
       setStatus('uploading');
       const fileId = crypto.randomUUID();
       const storagePath = `${currentUser.id}/${fileId}.enc`;
@@ -141,7 +165,7 @@ export default function UploadPage() {
         
       if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
       
-      // 6. Insert into documents table
+      // 8. Insert into documents table
       setStatus('saving');
       
       const { error: docError } = await supabase
@@ -150,14 +174,16 @@ export default function UploadPage() {
           id: fileId,
           owner_id: currentUser.id,
           family_id: currentUser.family_id,
-          file_name: file.name,
+          file_name: file.name, // Keep original name, but use optimized size
           file_path: storagePath,
-          file_size_bytes: file.size,
-          mime_type: file.type,
+          file_size_bytes: optimizedFile.size,
+          mime_type: optimizedFile.type,
           iv: ivBase64,
           key_version: 1,
           doc_type: docType,
-          expiry_date: expiryDate ? new Date(expiryDate).toISOString() : null,
+          extracted_name: metadata.extracted_name,
+          extracted_doc_number: metadata.extracted_doc_number,
+          expiry_date: expiryDate ? new Date(expiryDate).toISOString() : (metadata.expiry_date ? new Date(metadata.expiry_date).toISOString() : null),
         });
         
       if (docError) throw new Error(`Failed to save metadata: ${docError.message}`);
@@ -174,6 +200,9 @@ export default function UploadPage() {
         
       if (keyError) throw new Error(`Failed to save encryption key: ${keyError.message}`);
       
+      // 9. Log audit event
+      await logAuditEvent('upload', 'document', fileId, { file_name: file.name, size: optimizedFile.size });
+      
       setStatus('done');
       
       setTimeout(() => {
@@ -184,6 +213,8 @@ export default function UploadPage() {
       console.error(err);
       setError(err.message || 'An unexpected error occurred during upload.');
       setStatus('idle');
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -212,7 +243,7 @@ export default function UploadPage() {
                 placeholder="Find a document type..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-11 pr-4 py-3.5 bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl border border-gray-200 dark:border-gray-700 rounded-2xl focus:ring-2 focus:ring-purple-500 outline-none text-gray-900 dark:text-white transition-all placeholder-gray-400 shadow-sm hover:shadow-md"
+                className="w-full pl-11 pr-4 py-3.5 min-h-[48px] bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl border border-gray-200 dark:border-gray-700 rounded-2xl focus:ring-2 focus:ring-purple-500 outline-none text-gray-900 dark:text-white transition-all placeholder-gray-400 shadow-sm hover:shadow-md"
               />
             </div>
           </div>
@@ -270,7 +301,7 @@ export default function UploadPage() {
           {status === 'idle' && (
             <button 
               onClick={() => setSelectedDocType(null)}
-              className="mb-6 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-full font-medium flex items-center transition-all shadow-sm hover:shadow group"
+              className="mb-6 px-4 py-2 min-h-[48px] text-sm text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-full font-medium flex items-center transition-all shadow-sm hover:shadow group"
             >
               <svg className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
               Choose a different category
@@ -283,10 +314,7 @@ export default function UploadPage() {
             <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-blue-500/5 pointer-events-none"></div>
 
             {error && (
-              <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-2xl text-sm font-medium border border-red-100 dark:border-red-800/50 flex items-start">
-                <svg className="w-5 h-5 mr-2 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                {error}
-              </div>
+              <ErrorToast message={error} onClose={() => setError(null)} />
             )}
 
             {status === 'idle' ? (
@@ -308,7 +336,7 @@ export default function UploadPage() {
                 {!file ? (
                   <div>
                     <div 
-                      className={`border-2 border-dashed rounded-[2rem] p-12 text-center transition-all duration-300 ${
+                      className={`border-2 border-dashed rounded-[2rem] p-8 md:p-12 text-center transition-all duration-300 cursor-pointer md:cursor-default relative ${
                         isDragging 
                           ? 'border-purple-500 bg-purple-50/50 dark:bg-purple-900/10 scale-[1.02]' 
                           : 'border-gray-300 dark:border-gray-600 hover:bg-gray-50/50 dark:hover:bg-gray-700/30'
@@ -316,25 +344,26 @@ export default function UploadPage() {
                       onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                       onDragLeave={() => setIsDragging(false)}
                       onDrop={handleDrop}
+                      onClick={() => fileInputRef.current?.click()}
                     >
                       <div className="w-20 h-20 mx-auto bg-gradient-to-br from-purple-100 to-indigo-100 dark:from-purple-900/40 dark:to-indigo-900/40 text-purple-600 dark:text-purple-400 rounded-full flex items-center justify-center mb-6 shadow-inner ring-4 ring-white dark:ring-gray-800">
                         <CloudArrowUpIcon className="w-10 h-10" />
                       </div>
-                      <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Drop your file here</h3>
+                      <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Tap to select or Drop your file here</h3>
                       <p className="text-gray-500 dark:text-gray-400 mb-8 max-w-sm mx-auto">Supports PDF, JPG, PNG up to 10MB. It will be encrypted locally before upload.</p>
                       
-                      <div className="flex flex-col sm:flex-row justify-center items-center gap-4">
+                      <div className="flex flex-col sm:flex-row justify-center items-stretch gap-4 relative z-10" onClick={e => e.stopPropagation()}>
                         <button 
                           onClick={() => fileInputRef.current?.click()}
-                          className="w-full sm:w-auto px-8 py-3.5 bg-gray-900 hover:bg-black dark:bg-white dark:hover:bg-gray-100 text-white dark:text-gray-900 font-semibold rounded-2xl shadow-md hover:shadow-lg transition-all"
+                          className="w-full sm:w-auto px-8 py-3.5 min-h-[48px] bg-gray-900 hover:bg-black dark:bg-white dark:hover:bg-gray-100 text-white dark:text-gray-900 font-semibold rounded-2xl shadow-md hover:shadow-lg transition-all"
                         >
                           Browse Files
                         </button>
                         <button 
                           onClick={() => cameraInputRef.current?.click()}
-                          className="w-full sm:w-auto px-8 py-3.5 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 text-gray-700 dark:text-gray-200 font-semibold rounded-2xl shadow-sm transition-all flex items-center justify-center"
+                          className="w-full sm:w-auto px-8 py-3.5 min-h-[48px] bg-purple-600 text-white sm:bg-white sm:text-gray-700 sm:dark:bg-gray-800 sm:border-2 sm:border-gray-200 sm:dark:border-gray-700 sm:hover:border-gray-300 sm:dark:hover:border-gray-600 sm:dark:text-gray-200 font-bold sm:font-semibold rounded-2xl shadow-lg sm:shadow-sm transition-all flex items-center justify-center order-first sm:order-last"
                         >
-                          <CameraIcon className="w-5 h-5 mr-2" />
+                          <CameraIcon className="w-6 h-6 sm:w-5 sm:h-5 mr-2" />
                           Take Photo
                         </button>
                       </div>
@@ -366,14 +395,14 @@ export default function UploadPage() {
                         type="date"
                         value={expiryDate}
                         onChange={(e) => setExpiryDate(e.target.value)}
-                        className="w-full px-5 py-4 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-2xl focus:ring-2 focus:ring-purple-500 outline-none text-gray-900 dark:text-white font-medium shadow-sm transition-all"
+                        className="w-full px-5 py-4 min-h-[48px] bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-2xl focus:ring-2 focus:ring-purple-500 outline-none text-gray-900 dark:text-white font-medium shadow-sm transition-all"
                       />
                       <p className="text-xs text-gray-500 mt-2">We'll alert you 30 days before it expires.</p>
                     </div>
                     
                     <button 
                       onClick={handleUpload}
-                      className="w-full py-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold rounded-2xl shadow-lg hover:shadow-purple-500/25 text-lg transition-all flex items-center justify-center group"
+                      className="w-full py-4 min-h-[56px] bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold rounded-2xl shadow-lg hover:shadow-purple-500/25 text-lg transition-all flex items-center justify-center group"
                     >
                       <LockClosedIcon className="w-6 h-6 mr-3 group-hover:scale-110 transition-transform" />
                       Encrypt & Secure Document
@@ -400,12 +429,16 @@ export default function UploadPage() {
                 </div>
                 
                 <h3 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-3">
+                  {status === 'compressing' && 'Optimizing...'}
+                  {status === 'scanning' && `Scanning Document... ${ocrProgress}%`}
                   {status === 'encrypting' && 'Encrypting Locally...'}
                   {status === 'uploading' && 'Uploading Secure Blob...'}
                   {status === 'saving' && 'Saving Metadata...'}
                   {status === 'done' && 'Secured Successfully!'}
                 </h3>
                 <p className="text-gray-500 dark:text-gray-400 text-lg max-w-sm mx-auto">
+                  {status === 'compressing' && 'Compressing the file to save space.'}
+                  {status === 'scanning' && 'Running local OCR to securely extract metadata.'}
                   {status === 'encrypting' && 'Applying zero-knowledge AES-GCM encryption natively on your device.'}
                   {status === 'uploading' && 'Transferring the encrypted chunk directly to your private vault storage.'}
                   {status === 'saving' && 'Storing document metadata and securing your mapped cryptographic keys.'}
