@@ -29,10 +29,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Failed to create family space' }, { status: 500 });
     }
 
-    // 2. Set current user as family_admin and assign family_id
+    // 2. Set current user as family_admin (unless they are a super_admin) and assign family_id
+    const { data: currentUser } = await supabaseAdmin.from('users').select('role').eq('id', session.user.id).single();
+    const newRole = currentUser?.role === 'super_admin' ? 'super_admin' : 'family_admin';
+
     const { error: userError } = await supabaseAdmin
       .from('users')
-      .update({ family_id: newFamily.id, role: 'family_admin' })
+      .update({ family_id: newFamily.id, role: newRole })
       .eq('id', session.user.id);
 
     if (userError) {

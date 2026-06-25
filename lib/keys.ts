@@ -46,6 +46,68 @@ export async function initializeMasterKey(password: string, userId: string): Pro
 }
 
 /**
+ * Checks if the user has already set up their master password by checking for a validation key.
+ */
+export async function hasMasterValidationKey(userId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('encryption_keys')
+    .select('id')
+    .eq('key_type', 'master_validation')
+    .eq('user_id', userId)
+    .single()
+
+  if (error && error.code !== 'PGRST116') {
+    throw new Error('Failed to check master validation: ' + error.message)
+  }
+
+  return !!data
+}
+
+/**
+ * Sets up the master password by generating a dummy validation key and wrapping it.
+ */
+export async function setupMasterPassword(userId: string, masterKey: CryptoKey): Promise<void> {
+  const validationKey = await generateDocumentKey()
+  const wrappedKeyBuffer = await wrapKey(validationKey, masterKey)
+  const wrappedKeyBase64 = arrayBufferToBase64(wrappedKeyBuffer)
+
+  const { error } = await supabase
+    .from('encryption_keys')
+    .insert({
+      key_type: 'master_validation',
+      user_id: userId,
+      encrypted_key: wrappedKeyBase64
+    })
+
+  if (error) {
+    throw new Error('Failed to save master validation key: ' + error.message)
+  }
+}
+
+/**
+ * Verifies the master password by attempting to unwrap the validation key.
+ */
+export async function verifyMasterPassword(userId: string, masterKey: CryptoKey): Promise<void> {
+  const { data, error } = await supabase
+    .from('encryption_keys')
+    .select('encrypted_key')
+    .eq('key_type', 'master_validation')
+    .eq('user_id', userId)
+    .single()
+
+  if (error || !data || !data.encrypted_key) {
+    throw new Error('Master validation key not found. Please set up your vault first.')
+  }
+
+  try {
+    const wrappedKeyBuffer = base64ToArrayBuffer(data.encrypted_key)
+    await unwrapKey(wrappedKeyBuffer, masterKey)
+  } catch (err) {
+    throw new Error('Incorrect master password.')
+  }
+}
+
+/**
  * Loads an existing family key from the database or creates a new one if it doesn't exist.
  * The family key is securely wrapped with the user's master key before storage.
  * 
@@ -57,7 +119,7 @@ export async function initializeMasterKey(password: string, userId: string): Pro
 export async function loadOrCreateFamilyKey(userId: string, familyId: string, masterKey: CryptoKey): Promise<CryptoKey> {
   const { data: existingKeyRow, error: fetchError } = await supabase
     .from('encryption_keys')
-    .select('wrapped_key')
+    .select('encrypted_key')
     .eq('key_type', 'family')
     .eq('user_id', userId)
     .single()
@@ -67,9 +129,9 @@ export async function loadOrCreateFamilyKey(userId: string, familyId: string, ma
     throw new Error('Failed to fetch family key: ' + fetchError.message)
   }
 
-  if (existingKeyRow && existingKeyRow.wrapped_key) {
+  if (existingKeyRow && existingKeyRow.encrypted_key) {
     // Unwrap the existing key using the newly derived master key
-    const wrappedKeyBuffer = base64ToArrayBuffer(existingKeyRow.wrapped_key)
+    const wrappedKeyBuffer = base64ToArrayBuffer(existingKeyRow.encrypted_key)
     const familyKey = await unwrapKey(wrappedKeyBuffer, masterKey)
     useVaultStore.getState().setFamilyKey(familyKey)
     return familyKey
@@ -86,7 +148,7 @@ export async function loadOrCreateFamilyKey(userId: string, familyId: string, ma
         user_id: userId,
         // Assuming family_id mapping if schema expects it. If not, this is a generic implementation.
         family_id: familyId, 
-        wrapped_key: wrappedKeyBase64
+        encrypted_key: wrappedKeyBase64
       })
 
     if (insertError) {

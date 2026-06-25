@@ -26,6 +26,13 @@ export default function SuperAdminPage() {
   const [families, setFamilies] = useState<any[]>([]);
   const [expandedFamily, setExpandedFamily] = useState<string | null>(null);
   const [familyMembers, setFamilyMembers] = useState<Record<string, any[]>>({});
+  
+  // Create Family
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [newFamilyName, setNewFamilyName] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [newFamilyCode, setNewFamilyCode] = useState<string | null>(null);
 
   // Audit Logs
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
@@ -163,6 +170,48 @@ export default function SuperAdminPage() {
     }
   };
 
+  const handleCreateFamily = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFamilyName.trim() || !currentUser) return;
+    
+    setIsCreating(true);
+    setCreateError(null);
+    setNewFamilyCode(null);
+    
+    try {
+      const res = await fetch('/api/admin/create-family', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newFamilyName, adminId: currentUser.id })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create family');
+      
+      setNewFamilyCode(data.family.family_code);
+      
+      // Add to table
+      setFamilies([{
+        ...data.family,
+        memberCount: 0,
+        documentCount: 0,
+        storageUsed: 0,
+        suspended: false
+      }, ...families]);
+      
+      setStats(prev => ({
+        ...prev,
+        totalFamilies: prev.totalFamilies + 1,
+        newFamilies: prev.newFamilies + 1
+      }));
+      
+    } catch (err: any) {
+      setCreateError(err.message);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B';
     const k = 1024, sizes = ['B', 'KB', 'MB', 'GB'], i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -273,8 +322,20 @@ export default function SuperAdminPage() {
 
       {/* 2. Families Table */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-        <div className="p-6 border-b border-gray-100 dark:border-gray-700">
+        <div className="p-6 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">Families</h2>
+          <button 
+            onClick={() => {
+              setNewFamilyName('');
+              setCreateError(null);
+              setNewFamilyCode(null);
+              setCreateModalOpen(true);
+            }} 
+            className="text-sm bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center"
+          >
+            <Users className="w-4 h-4 mr-2" />
+            Provision Family Space
+          </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -411,6 +472,84 @@ export default function SuperAdminPage() {
           </table>
         </div>
       </div>
+      {/* Create Family Modal */}
+      <Dialog.Root open={createModalOpen} onOpenChange={setCreateModalOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-gray-900 rounded-2xl shadow-xl w-full max-w-md p-6 z-50">
+            <Dialog.Title className="text-xl font-bold text-gray-900 dark:text-white mb-4">
+              Provision Family Space
+            </Dialog.Title>
+            
+            {!newFamilyCode ? (
+              <form onSubmit={handleCreateFamily} className="space-y-4">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Create a new family vault space. This will generate a unique access code you can share with the family members. You will not be automatically added to this space.
+                </p>
+                <div>
+                  <input 
+                    type="text" 
+                    placeholder="Family Name (e.g., The Smiths)" 
+                    value={newFamilyName}
+                    onChange={(e) => setNewFamilyName(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                {createError && <p className="text-red-500 text-sm">{createError}</p>}
+                
+                <div className="flex justify-end space-x-3 mt-6">
+                  <button 
+                    type="button" 
+                    onClick={() => setCreateModalOpen(false)}
+                    className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={isCreating}
+                    className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg font-medium transition-colors disabled:opacity-50"
+                  >
+                    {isCreating ? 'Provisioning...' : 'Provision Space'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="text-center space-y-6 py-4">
+                <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-2">
+                  <Users className="w-8 h-8" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-white">Space Created!</h3>
+                  <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">Share this code with the family so they can join.</p>
+                </div>
+                <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                  <span className="font-mono text-2xl font-bold tracking-widest text-gray-900 dark:text-white">
+                    {newFamilyCode}
+                  </span>
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(newFamilyCode);
+                      alert('Code copied!');
+                    }}
+                    className="text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 p-2 rounded-lg transition-colors"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <button 
+                  onClick={() => setCreateModalOpen(false)}
+                  className="w-full py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl font-medium"
+                >
+                  Done
+                </button>
+              </div>
+            )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
     </div>
   );
 }

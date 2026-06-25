@@ -77,7 +77,9 @@ export default function DocumentViewerPage() {
 
         if (personalAccess) {
           accessData = personalAccess;
-          unwrappingKey = masterKey;
+          // Documents we own are encrypted with our masterKey.
+          // Documents shared WITH us by others in the family are encrypted with the familyKey.
+          unwrappingKey = doc.owner_id === currentUser.id ? masterKey : familyKey!;
         } else if (currentUser.family_id && familyKey) {
           const { data: familyAccess } = await supabase
             .from('document_access')
