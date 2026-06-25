@@ -11,6 +11,7 @@ import { startKeepAlive, startAutoLogout } from '@/lib/session';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Home, FileText, Upload, Users, Settings, Shield, Menu, X, BarChart2 } from 'lucide-react';
 import SearchBar from '@/components/search/SearchBar';
+import QueryProvider from '@/components/providers/QueryProvider';
 
 export default function DashboardLayout({
   children,
@@ -207,7 +208,9 @@ export default function DashboardLayout({
         </header>
 
         <main className="flex-1 p-4 md:p-6 overflow-auto">
-          {children}
+          <QueryProvider>
+            {children}
+          </QueryProvider>
         </main>
       </div>
 

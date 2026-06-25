@@ -33,9 +33,7 @@ export default function DocumentViewerPage() {
   const [status, setStatus] = useState<'fetching' | 'decrypting' | 'rendering' | 'ready' | 'error'>('fetching');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [accessList, setAccessList] = useState<any[]>([]);
-  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     let activeUrl: string | null = null;
@@ -66,44 +64,48 @@ export default function DocumentViewerPage() {
           .eq('document_id', id);
         if (aList) setAccessList(aList);
 
-        // 2. Fetch wrapped key
-        // Assuming user_id matches the one used to wrap the key, 
-        // OR the document_access table provides a shared key.
-        // For simplicity, we assume personal key first.
-        let wrappedKeyBase64: string | null = null;
+        // 2. Fetch wrapped key from document_access
+        let accessData = null;
+        let unwrappingKey = masterKey;
 
-        if (doc.owner_id === currentUser.id) {
-          const { data: keyData, error: keyError } = await supabase
-            .from('encryption_keys')
-            .select('encrypted_key')
-            .eq('user_id', currentUser.id)
-            .limit(1)
-            .single();
-            
-          if (keyError || !keyData) throw new Error('Encryption key not found in your vault.');
-          wrappedKeyBase64 = keyData.encrypted_key;
-        } else {
-          // If shared document, fetch from document_access
-          const { data: accessData, error: accessError } = await supabase
+        const { data: personalAccess } = await supabase
+          .from('document_access')
+          .select('wrapped_key')
+          .eq('document_id', id)
+          .eq('granted_to', currentUser.id)
+          .maybeSingle();
+
+        if (personalAccess) {
+          accessData = personalAccess;
+          unwrappingKey = masterKey;
+        } else if (currentUser.family_id && familyKey) {
+          const { data: familyAccess } = await supabase
             .from('document_access')
             .select('wrapped_key')
             .eq('document_id', id)
-            .eq('granted_to', currentUser.id)
-            .limit(1)
-            .single();
-
-          if (accessError || !accessData) throw new Error('Shared encryption key not found.');
-          wrappedKeyBase64 = accessData.wrapped_key;
+            .eq('granted_to', currentUser.family_id)
+            .maybeSingle();
+            
+          if (familyAccess) {
+            accessData = familyAccess;
+            unwrappingKey = familyKey;
+          }
         }
+
+        if (!accessData) throw new Error('Encryption key not found. You may not have access.');
+        const wrappedKeyBase64 = accessData.wrapped_key;
 
         setStatus('decrypting');
 
         // 3. Unwrap document key
         const wrappedKeyBuffer = base64ToArrayBuffer(wrappedKeyBase64);
-        const docKey = await unwrapKey(
-          wrappedKeyBuffer, 
-          doc.owner_id === currentUser.id ? masterKey : familyKey!
-        );
+        let docKey: CryptoKey;
+        try {
+          docKey = await unwrapKey(wrappedKeyBuffer, unwrappingKey);
+        } catch (unwrapErr) {
+          console.error("Unwrap failed:", unwrapErr);
+          throw new Error("Failed to decrypt document. The encryption key is corrupted or invalid for your current session.");
+        }
 
         // 4. Fetch encrypted file via Signed URL
         const { data: signedData, error: signedError } = await supabase.storage
@@ -187,28 +189,7 @@ export default function DocumentViewerPage() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!id || typeof id !== 'string') return;
-    setIsDeleting(true);
-    try {
-      const response = await fetch(`/api/delete-document?id=${id}`, {
-        method: 'DELETE',
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to delete the document.');
-      }
 
-      router.push('/dashboard/documents');
-    } catch (err: any) {
-      console.error(err);
-      alert(err.message || 'Failed to delete the document.');
-      setIsDeleting(false);
-      setShowDeleteModal(false);
-    }
-  };
 
   if (status === 'error') {
     return (
@@ -244,10 +225,6 @@ export default function DocumentViewerPage() {
                   <button onClick={() => setShowShareModal(true)} className="shrink-0 flex items-center px-4 py-2 bg-green-50 text-green-600 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400 rounded-lg text-sm font-medium transition-colors">
                     <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-5.368m0 5.368l5.662 3.775a3 3 0 10.985-1.472l-5.663-3.775m0-5.368l5.663-3.775a3 3 0 11-.985 1.472l-5.662 3.775m-5.662 3.775L3 12l5.684-3.342" /></svg>
                     Share
-                  </button>
-                  <button onClick={() => setShowDeleteModal(true)} className="shrink-0 flex items-center px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 rounded-lg text-sm font-medium transition-colors">
-                    <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                    Delete
                   </button>
                 </>
               )}
@@ -420,37 +397,7 @@ export default function DocumentViewerPage() {
         />
       )}
 
-      {/* Delete Confirmation Modal */}
-      <Dialog.Root open={showDeleteModal} onOpenChange={setShowDeleteModal}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50 backdrop-blur-sm transition-opacity" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[95vw] max-w-md bg-white dark:bg-gray-800 rounded-3xl shadow-xl p-8 border border-gray-100 dark:border-gray-700 animate-in fade-in zoom-in duration-200">
-            <div className="flex flex-col items-center text-center">
-              <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center mb-6">
-                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-              </div>
-              <Dialog.Title className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Delete Document?</Dialog.Title>
-              <Dialog.Description className="text-gray-500 dark:text-gray-400 mb-8">
-                This will permanently delete the file <span className="font-semibold text-gray-700 dark:text-gray-300">"{document?.file_name}"</span>. This action cannot be undone and will revoke access for all shared users immediately.
-              </Dialog.Description>
-              <div className="flex space-x-4 w-full">
-                <Dialog.Close asChild>
-                  <button className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white font-semibold rounded-xl transition-colors min-h-[48px]">
-                    Cancel
-                  </button>
-                </Dialog.Close>
-                <button 
-                  onClick={handleDelete}
-                  disabled={isDeleting}
-                  className="flex-1 py-3 px-4 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors min-h-[48px]"
-                >
-                  {isDeleting ? 'Deleting...' : 'Yes, Delete'}
-                </button>
-              </div>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+
 
     </div>
   );

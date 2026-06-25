@@ -39,13 +39,19 @@ export default function SuperAdminPage() {
   });
 
   useEffect(() => {
-    if (!currentUser) return;
-    if (currentUser.role !== 'super_admin') {
-      router.push('/dashboard');
-      return;
-    }
-
     async function fetchData() {
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        router.push('/login');
+        return;
+      }
+      
+      const { data: roleData, error: roleError } = await supabase.rpc('get_user_role', { user_id: user.id });
+      if (roleError || !roleData || roleData.length === 0 || roleData[0].role !== 'super_admin') {
+        router.push('/dashboard');
+        return;
+      }
+
       // 1. Stats
       const [{ count: fCount }, { count: uCount }, { data: docs }, { count: expDocs }, { count: newFCount }] = await Promise.all([
         supabase.from('families').select('*', { count: 'exact', head: true }),
@@ -108,7 +114,7 @@ export default function SuperAdminPage() {
     }
 
     fetchData();
-  }, [currentUser, router]);
+  }, [router]);
 
   const toggleFamilyExpand = async (familyId: string) => {
     if (expandedFamily === familyId) {
@@ -275,6 +281,7 @@ export default function SuperAdminPage() {
             <thead>
               <tr className="bg-gray-50 dark:bg-gray-900/50">
                 <th className="p-4 text-sm font-medium text-gray-500">Name / ID</th>
+                <th className="p-4 text-sm font-medium text-gray-500">Family Code</th>
                 <th className="p-4 text-sm font-medium text-gray-500">Members</th>
                 <th className="p-4 text-sm font-medium text-gray-500">Documents</th>
                 <th className="p-4 text-sm font-medium text-gray-500">Storage</th>
@@ -291,6 +298,19 @@ export default function SuperAdminPage() {
                         {expandedFamily === family.id ? <ChevronDown className="w-4 h-4 mr-2" /> : <ChevronRight className="w-4 h-4 mr-2" />}
                         {family.name || family.id.substring(0, 8)}
                       </button>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-mono text-sm text-gray-600 dark:text-gray-300">{family.family_code || '---'}</span>
+                        {family.family_code && (
+                          <button onClick={() => {
+                            navigator.clipboard.writeText(family.family_code);
+                            alert('Code copied!');
+                          }} className="text-gray-400 hover:text-blue-500 transition-colors">
+                            <FileText className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td className="p-4 text-gray-600 dark:text-gray-300">{family.memberCount}</td>
                     <td className="p-4 text-gray-600 dark:text-gray-300">{family.documentCount}</td>
@@ -321,7 +341,7 @@ export default function SuperAdminPage() {
                   </tr>
                   {expandedFamily === family.id && (
                     <tr className="bg-gray-50 dark:bg-gray-900/30 border-b border-gray-100 dark:border-gray-700">
-                      <td colSpan={6} className="p-4 pl-10">
+                      <td colSpan={7} className="p-4 pl-10">
                         <div className="space-y-2">
                           <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Members:</h4>
                           {familyMembers[family.id]?.map((m) => (

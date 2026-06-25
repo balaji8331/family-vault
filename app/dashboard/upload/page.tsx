@@ -9,6 +9,8 @@ import { compressImage, compressPDF } from '@/lib/compress';
 import { extractDocumentMetadata } from '@/lib/ocr';
 import { logAuditEvent } from '@/lib/audit';
 import { ErrorToast } from '@/components/ui/ErrorToast';
+import * as Dialog from '@radix-ui/react-dialog';
+import { Trash2 } from 'lucide-react';
 
 // Helper to convert an ArrayBuffer to a Base64 string for database storage.
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -60,6 +62,12 @@ export default function UploadPage() {
   const [docTypesList, setDocTypesList] = useState<{name: string, value: string}[]>(DEFAULT_DOC_TYPES);
   const [fetchingTypes, setFetchingTypes] = useState(true);
 
+  const [existingDocs, setExistingDocs] = useState<any[]>([]);
+  
+  // Delete Modal State
+  const [documentToDelete, setDocumentToDelete] = useState<any>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   React.useEffect(() => {
     async function fetchDocTypes() {
       try {
@@ -88,9 +96,51 @@ export default function UploadPage() {
     }
     fetchDocTypes();
   }, []);
+
+  React.useEffect(() => {
+    async function fetchExistingDocs() {
+      if (!selectedDocType || !currentUser?.id) {
+        setExistingDocs([]);
+        return;
+      }
+      try {
+        const { data } = await supabase
+          .from('documents')
+          .select('id, file_name, uploaded_at, expiry_date')
+          .eq('owner_id', currentUser.id)
+          .eq('doc_type', selectedDocType)
+          .order('uploaded_at', { ascending: false });
+        
+        if (data) {
+          setExistingDocs(data);
+        }
+      } catch (err) {
+        console.error('Error fetching existing docs:', err);
+      }
+    }
+    fetchExistingDocs();
+  }, [selectedDocType, currentUser?.id]);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDelete = async () => {
+    if (!documentToDelete?.id) return;
+    setIsDeleting(true);
+    try {
+      const response = await fetch(`/api/delete-document?id=${documentToDelete.id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to delete');
+      }
+      setExistingDocs(docs => docs.filter(d => d.id !== documentToDelete.id));
+      setDocumentToDelete(null);
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete the document.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -188,14 +238,14 @@ export default function UploadPage() {
         
       if (docError) throw new Error(`Failed to save metadata: ${docError.message}`);
       
-      // 7. Insert into encryption_keys table
+      // 7. Insert into document_access table for the owner
       const { error: keyError } = await supabase
-        .from('encryption_keys')
+        .from('document_access')
         .insert({
-          user_id: currentUser.id,
-          key_type: 'personal',
-          encrypted_key: wrappedKeyBase64,
-          key_version: 1
+          document_id: fileId,
+          granted_to: currentUser.id,
+          granted_by: currentUser.id,
+          wrapped_key: wrappedKeyBase64
         });
         
       if (keyError) throw new Error(`Failed to save encryption key: ${keyError.message}`);
@@ -371,6 +421,38 @@ export default function UploadPage() {
                       <input type="file" className="hidden" ref={fileInputRef} accept=".pdf,image/jpeg,image/png,image/webp" onChange={handleFileSelect} />
                       <input type="file" className="hidden" ref={cameraInputRef} accept="image/*" capture="environment" onChange={handleFileSelect} />
                     </div>
+
+                    {/* Existing Documents of Same Type */}
+                    {existingDocs.length > 0 && (
+                      <div className="mt-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Already in Vault</h3>
+                        <div className="space-y-3">
+                          {existingDocs.map(doc => (
+                            <div key={doc.id} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900/50 rounded-2xl border border-gray-100 dark:border-gray-800">
+                              <div className="flex flex-col">
+                                <span className="font-medium text-gray-900 dark:text-white truncate max-w-[200px] sm:max-w-xs">{doc.file_name}</span>
+                                <span className="text-xs text-gray-500 mt-1">Uploaded {new Date(doc.uploaded_at).toLocaleDateString()}</span>
+                              </div>
+                              <div className="flex space-x-2">
+                                <button 
+                                  onClick={() => router.push(`/dashboard/documents/${doc.id}`)}
+                                  className="px-4 py-2 min-w-[36px] min-h-[36px] text-sm font-medium text-purple-600 bg-purple-50 hover:bg-purple-100 dark:bg-purple-900/20 dark:text-purple-400 rounded-xl transition-colors flex items-center justify-center"
+                                >
+                                  View
+                                </button>
+                                <button 
+                                  onClick={() => setDocumentToDelete(doc)}
+                                  className="px-3 py-2 min-w-[36px] min-h-[36px] text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 rounded-xl transition-colors flex items-center justify-center"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300">
@@ -449,6 +531,39 @@ export default function UploadPage() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal using Radix Dialog */}
+      <Dialog.Root open={!!documentToDelete} onOpenChange={(open) => !open && setDocumentToDelete(null)}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50 backdrop-blur-sm transition-opacity" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[95vw] max-w-md bg-white dark:bg-gray-800 rounded-3xl shadow-xl p-8 border border-gray-100 dark:border-gray-700 animate-in fade-in zoom-in duration-200">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center mb-6">
+                <Trash2 className="w-8 h-8" />
+              </div>
+              <Dialog.Title className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Delete Document?</Dialog.Title>
+              <Dialog.Description className="text-gray-500 dark:text-gray-400 mb-8">
+                This will permanently delete the file <span className="font-semibold text-gray-700 dark:text-gray-300">"{documentToDelete?.file_name}"</span>. This action cannot be undone.
+              </Dialog.Description>
+              <div className="flex space-x-4 w-full">
+                <Dialog.Close asChild>
+                  <button className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white font-semibold rounded-xl transition-colors min-h-[48px]">
+                    Cancel
+                  </button>
+                </Dialog.Close>
+                <button 
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="flex-1 py-3 px-4 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors min-h-[48px]"
+                >
+                  {isDeleting ? 'Deleting...' : 'Yes, Delete'}
+                </button>
+              </div>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
     </div>
   );
 }

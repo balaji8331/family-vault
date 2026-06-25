@@ -1,8 +1,0 @@
-#define SIMDUTF_IMPLEMENTATION westmere
-#define SIMDUTF_SIMD_HAS_BYTEMASK 1
-
-#if SIMDUTF_CAN_ALWAYS_RUN_WESTMERE
-// nothing needed.
-#else
-SIMDUTF_TARGET_WESTMERE
-#endif

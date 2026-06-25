@@ -51,28 +51,26 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/login?error=exchange_failed`)
   }
 
-  // Call Supabase RPC to get user role
-  const { data, error: rpcError } = await supabase.rpc('get_user_role', { 
-    user_id: user.id 
-  })
+  const { data: userData, error: dbError } = await supabase
+    .from('users')
+    .select('role, family_id')
+    .eq('id', user.id)
+    .single()
 
-  if (rpcError || !data || data.length === 0) {
-    console.error('RPC get_user_role error or no data:', rpcError)
-    // Explicitly sign them out so they aren't stuck with an invalid session
+  if (dbError || !userData) {
+    console.error('Database query error or no user data:', dbError)
     await supabase.auth.signOut()
     return NextResponse.redirect(`${origin}/login?error=unauthorized_email`)
   }
 
-  const role = data[0].role
+  const { role, family_id } = userData
 
-  // Redirect based on role
+  // Redirect based on role and family status
   if (role === 'super_admin') {
     return NextResponse.redirect(`${origin}/admin`)
-  } else if (role === 'family_admin' || role === 'member') {
+  } else if (!family_id) {
+    return NextResponse.redirect(`${origin}/dashboard/family`)
+  } else {
     return NextResponse.redirect(`${origin}${next}`)
   }
-
-  // Fallback in case of unexpected role
-  await supabase.auth.signOut()
-  return NextResponse.redirect(`${origin}/login?error=unauthorized_email`)
 }

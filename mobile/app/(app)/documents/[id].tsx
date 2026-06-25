@@ -25,22 +25,14 @@ export default function DocumentViewer() {
       setDoc(document);
 
       // Get wrapped key
-      const { data: access } = await supabase.from('document_access').select('wrapped_key').eq('document_id', id).eq('granted_to', currentUser.id).single();
+      const { data: access, error: accessError } = await supabase.from('document_access').select('wrapped_key').eq('document_id', id).eq('granted_to', currentUser.id).single();
       
-      let docKeyBuffer: ArrayBuffer;
-      if (document.owner_id === currentUser.id) {
-        const { data: keys } = await supabase.from('encryption_keys').select('encrypted_key').eq('user_id', currentUser.id).eq('key_type', 'master');
-        // Simple unwrap for owner (assuming encrypted_key stores the actual doc key, or doc.iv is used)
-        // In full impl, you'd fetch the document_access for the owner. 
-        if (access?.wrapped_key) {
-           docKeyBuffer = unwrapKeyMobile(Buffer.from(access.wrapped_key, 'base64'), masterKey);
-        } else {
-           // fallback logic
-           return;
-        }
-      } else {
-         docKeyBuffer = unwrapKeyMobile(Buffer.from(access!.wrapped_key, 'base64'), masterKey); // Assuming it was shared via family key
+      if (accessError || !access?.wrapped_key) {
+        Alert.alert('Error', 'Encryption key not found. You may not have access.');
+        return;
       }
+
+      const docKeyBuffer = unwrapKeyMobile(Buffer.from(access.wrapped_key, 'base64'), masterKey);
 
       const { data: blob } = await supabase.storage.from('documents').download(document.file_path);
       if (!blob) return;

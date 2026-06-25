@@ -1,7 +1,0 @@
-#if SIMDUTF_CAN_ALWAYS_RUN_RVV
-// nothing needed.
-#else
-SIMDUTF_UNTARGET_REGION
-#endif
-
-#undef SIMDUTF_IMPLEMENTATION

@@ -4,7 +4,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: 'FamilyVault',
   slug: 'familyvault',
-  scheme: 'familyvault',
+  scheme: 'exp-familyvault',
   version: '1.0.0',
   extra: {
     eas: {
@@ -46,6 +46,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     favicon: './assets/favicon.png'
   },
   plugins: [
+    'expo-web-browser',
     'expo-router',
     [
       'expo-camera',

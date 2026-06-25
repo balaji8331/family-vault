@@ -47,7 +47,11 @@ export default function ShareModal({ documentId, documentName, onClose }: ShareM
 
   useEffect(() => {
     async function fetchEligibleMembers() {
-      if (!currentUser) return;
+      if (!currentUser?.family_id) {
+        setMembers([]);
+        setLoading(false);
+        return;
+      }
       try {
         // 1. Fetch all family members
         const { data: familyMembers, error: membersError } = await supabase

@@ -1,1 +1,0 @@
-#define SIMDUTF_IMPLEMENTATION ppc64
