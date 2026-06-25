@@ -184,7 +184,7 @@ export default function FamilyPage() {
                     )}
                   </h4>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {member.email} &bull; Joined {new Date(member.created_at).toLocaleDateString()}
+                    {member.email ? `${member.email} \u2022 ` : ''}Joined {new Date(member.created_at).toLocaleDateString()}
                   </p>
                 </div>
               </div>

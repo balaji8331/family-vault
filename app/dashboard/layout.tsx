@@ -9,7 +9,8 @@ import KeyInitModal from '@/components/auth/KeyInitModal';
 import { logAuditEvent } from '@/lib/audit';
 import { startKeepAlive, startAutoLogout } from '@/lib/session';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Home, FileText, Upload, Users, Settings, Shield, Menu, X } from 'lucide-react';
+import { Home, FileText, Upload, Users, Settings, Shield, Menu, X, BarChart2 } from 'lucide-react';
+import SearchBar from '@/components/search/SearchBar';
 
 export default function DashboardLayout({
   children,
@@ -107,6 +108,7 @@ export default function DashboardLayout({
     { href: '/dashboard/documents', label: 'Documents', icon: FileText },
     { href: '/dashboard/upload', label: 'Upload', icon: Upload },
     ...(isAdminOrSuperAdmin ? [{ href: '/dashboard/family', label: 'Family', icon: Users }] : []),
+    ...(isAdminOrSuperAdmin ? [{ href: '/dashboard/analytics', label: 'Analytics', icon: BarChart2 }] : []),
     { href: '/dashboard/settings', label: 'Settings', icon: Settings },
   ];
 
@@ -185,10 +187,13 @@ export default function DashboardLayout({
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 md:pl-64 pt-16 md:pt-0">
         <header className="hidden md:flex bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700 px-6 py-4 items-center justify-between sticky top-0 z-20">
-          <h2 className="text-xl font-semibold text-gray-800 dark:text-white">
+          <h2 className="text-xl font-semibold text-gray-800 dark:text-white flex-shrink-0 mr-4">
             {navLinks.find(l => l.href === pathname)?.label || 'Dashboard'}
           </h2>
-          <div className="flex items-center space-x-4">
+          <div className="flex-1 max-w-2xl px-4">
+            <SearchBar />
+          </div>
+          <div className="flex items-center space-x-4 flex-shrink-0">
             <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
               {currentUser?.full_name}
             </span>

@@ -1,0 +1,2 @@
+ALTER TABLE families ADD COLUMN IF NOT EXISTS name text;
+ALTER TABLE families ADD COLUMN IF NOT EXISTS suspended boolean NOT NULL DEFAULT false;

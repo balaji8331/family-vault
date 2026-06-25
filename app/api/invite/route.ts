@@ -49,6 +49,7 @@ export async function POST(request: Request) {
       .from('users')
       .insert({
         id: authData.user.id,
+        email: email,
         family_id: familyId,
         full_name: 'Pending Member', // Placeholder
         role: role,
