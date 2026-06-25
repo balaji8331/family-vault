@@ -6,6 +6,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   slug: 'familyvault',
   scheme: 'familyvault',
   version: '1.0.0',
+  extra: {
+    eas: {
+      projectId: 'b169bb46-9473-4394-9e86-e0e1b5e21ef7'
+    }
+  },
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'automatic',
