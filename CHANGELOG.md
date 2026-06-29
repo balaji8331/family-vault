@@ -1,0 +1,21 @@
+## [Unreleased]
+### Added
+- Document Sharing: owners and family_admins can share any document with same-family members via Share button on DocumentCard.
+- ShareDocumentModal: full client-side crypto flow (unwrap with masterKey → re-wrap with familyKey → server stores for recipient).
+- SharedWithMePanel: dashboard widget showing documents shared with the current user.
+- `revokeShare` Server Action: atomically deletes both `document_access` and `encryption_keys` rows — no partial revoke.
+- Cross-family sharing blocked server-side; wrapped_key never appears in audit log metadata.
+- Filter controls via URL params: date range, action type, actor name, target type, family dropdown (super_admin).
+- AuditDetailDrawer with formatted metadata rendered as plain text (no dangerouslySetInnerHTML).
+- Super Admin CSV export (max 1000 rows) via Server Action with RFC 4180 escaping.
+- Audit Logs navigation link added to dashboard sidebar for admin roles.
+- Supabase Edge Function (`expiry-reminder`) integrated with Resend for transactional emails.
+- In-App `ExpiryPanel` dashboard widget displaying Critical, Warning, and Upcoming expirations.
+- Complete Family Member Management flow for `family_admin` and `super_admin`.
+- Super Admin overview (`/admin/families`) to manage all vaults, view storage/member counts, and create new families.
+- Centralized Server Actions in `lib/actions/family.ts` with strict role-based verification and audit logging.
+- `InviteMemberModal` and `MemberCard` UI components.
+- Created complete zero-knowledge Document Viewer flow.
+- Added `DocumentViewer` component which handles in-browser decryption of files.
+- Added `DecryptProgress` and `DocumentCard` components to modularize the document listing and viewing UI.
+- Secure `iframe` rendering with `sandbox="allow-same-origin"` for decrypted blobs.

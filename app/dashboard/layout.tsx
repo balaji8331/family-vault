@@ -9,7 +9,7 @@ import KeyInitModal from '@/components/auth/KeyInitModal';
 import { logAuditEvent } from '@/lib/audit';
 import { startKeepAlive, startAutoLogout } from '@/lib/session';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Home, FileText, Upload, Users, Settings, Shield, Menu, X, BarChart2 } from 'lucide-react';
+import { Home, FileText, Upload, Users, Settings, Shield, Menu, X, BarChart2, ClipboardList } from 'lucide-react';
 import SearchBar from '@/components/search/SearchBar';
 import QueryProvider from '@/components/providers/QueryProvider';
 
@@ -110,6 +110,7 @@ export default function DashboardLayout({
     { href: '/dashboard/upload', label: 'Upload', icon: Upload },
     ...(isAdminOrSuperAdmin ? [{ href: '/dashboard/family', label: 'Family', icon: Users }] : []),
     ...(isAdminOrSuperAdmin ? [{ href: '/dashboard/analytics', label: 'Analytics', icon: BarChart2 }] : []),
+    ...(isAdminOrSuperAdmin ? [{ href: '/dashboard/audit', label: 'Audit Logs', icon: ClipboardList }] : []),
     { href: '/dashboard/settings', label: 'Settings', icon: Settings },
   ];
 
