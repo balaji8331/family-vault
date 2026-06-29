@@ -52,8 +52,9 @@ export async function hasMasterValidationKey(userId: string): Promise<boolean> {
   const { data, error } = await supabase
     .from('encryption_keys')
     .select('id')
-    .eq('key_type', 'master_validation')
+    .eq('key_type', 'personal')
     .eq('user_id', userId)
+    .limit(1)
     .single()
 
   if (error && error.code !== 'PGRST116') {
@@ -74,7 +75,7 @@ export async function setupMasterPassword(userId: string, masterKey: CryptoKey):
   const { error } = await supabase
     .from('encryption_keys')
     .insert({
-      key_type: 'master_validation',
+      key_type: 'personal',
       user_id: userId,
       encrypted_key: wrappedKeyBase64
     })
@@ -91,8 +92,10 @@ export async function verifyMasterPassword(userId: string, masterKey: CryptoKey)
   const { data, error } = await supabase
     .from('encryption_keys')
     .select('encrypted_key')
-    .eq('key_type', 'master_validation')
+    .eq('key_type', 'personal')
     .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
     .single()
 
   if (error || !data || !data.encrypted_key) {
@@ -146,8 +149,6 @@ export async function loadOrCreateFamilyKey(userId: string, familyId: string, ma
       .insert({
         key_type: 'family',
         user_id: userId,
-        // Assuming family_id mapping if schema expects it. If not, this is a generic implementation.
-        family_id: familyId, 
         encrypted_key: wrappedKeyBase64
       })
 

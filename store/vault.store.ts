@@ -34,21 +34,17 @@ export const useVaultStore = create<VaultState>((set) => ({
   currentUser: null,
   isUploading: false,
   
-  setMasterKey: (key) => set((state) => ({ 
-    masterKey: key, 
-    // Session is ready when we have both a user and their decrypted master key
-    sessionReady: key !== null && state.currentUser !== null 
-  })),
+  setMasterKey: (key) => set({ 
+    masterKey: key 
+  }),
   
   setFamilyKey: (key) => set({ 
     familyKey: key 
   }),
   
-  setCurrentUser: (user) => set((state) => ({ 
-    currentUser: user,
-    // Session is ready when we have both a user and their decrypted master key
-    sessionReady: user !== null && state.masterKey !== null
-  })),
+  setCurrentUser: (user) => set({ 
+    currentUser: user
+  }),
   
   setIsUploading: (isUploading) => set({ isUploading }),
   

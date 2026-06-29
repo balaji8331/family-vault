@@ -14,8 +14,10 @@ lines.forEach(line => {
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 async function main() {
-  const { data, error } = await supabase.from('encryption_keys').select('*');
-  console.log('Keys:', error || data);
+  const { data, error } = await supabase.rpc('execute_sql', {
+    query: "ALTER TABLE encryption_keys DROP CONSTRAINT IF EXISTS encryption_keys_key_type_check; ALTER TABLE encryption_keys ADD CONSTRAINT encryption_keys_key_type_check CHECK (key_type IN ('personal', 'family', 'master_validation'));"
+  });
+  console.log('Result:', error || 'Success');
 }
 
 main();

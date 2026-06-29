@@ -14,8 +14,8 @@ lines.forEach(line => {
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 async function main() {
-  const { data, error } = await supabase.from('encryption_keys').select('*');
-  console.log('Keys:', error || data);
+  const { data, error } = await supabase.from('documents').select('id, file_name, created_at');
+  console.log('Docs:', error || data);
 }
 
 main();

@@ -14,8 +14,8 @@ lines.forEach(line => {
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 async function main() {
-  const { data, error } = await supabase.from('encryption_keys').select('*');
-  console.log('Keys:', error || data);
+  const { error } = await supabase.from('encryption_keys').delete().eq('user_id', '35237994-6b19-4708-b8d5-e5cde4d01b8d');
+  console.log('Delete result:', error || 'Success');
 }
 
 main();
