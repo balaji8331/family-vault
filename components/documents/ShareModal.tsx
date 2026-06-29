@@ -47,7 +47,11 @@ export default function ShareModal({ documentId, documentName, onClose }: ShareM
 
   useEffect(() => {
     async function fetchEligibleMembers() {
-      if (!currentUser) return;
+      if (!currentUser?.family_id) {
+        setMembers([]);
+        setLoading(false);
+        return;
+      }
       try {
         // 1. Fetch all family members
         const { data: familyMembers, error: membersError } = await supabase
@@ -101,18 +105,21 @@ export default function ShareModal({ documentId, documentName, onClose }: ShareM
     setError(null);
 
     try {
-      // 1. Fetch the document's wrapped key from encryption_keys (owner's personal key)
+      // 1. Fetch the document's wrapped key from document_access (owner's personal key)
       const { data: keyData, error: keyError } = await supabase
-        .from('encryption_keys')
-        .select('encrypted_key')
-        .eq('user_id', currentUser.id)
+        .from('document_access')
+        .select('wrapped_key')
+        .eq('document_id', documentId)
+        .eq('granted_to', currentUser.id)
         .limit(1)
         .single();
 
-      if (keyError || !keyData) throw new Error('Could not find your encryption key for this document.');
+      if (keyError || !keyData || !keyData.wrapped_key) {
+        throw new Error('Could not find your encryption key for this document.');
+      }
 
       // 2. Unwrap the docKey using the masterKey
-      const personalWrappedBuffer = base64ToArrayBuffer(keyData.encrypted_key);
+      const personalWrappedBuffer = base64ToArrayBuffer(keyData.wrapped_key);
       const docKey = await unwrapKey(personalWrappedBuffer, masterKey);
 
       // 3. Re-wrap the docKey using the familyKey

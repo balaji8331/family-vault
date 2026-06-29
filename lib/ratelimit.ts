@@ -6,35 +6,41 @@ import { Redis } from '@upstash/redis';
 const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
 const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
 
-const redis = redisUrl && redisToken 
-  ? new Redis({ url: redisUrl, token: redisToken })
-  : {
-      sadd: async () => 1,
-      eval: async () => [1, Date.now() + 60000]
-    } as any;
+const isRedisConfigured = redisUrl && redisToken && redisUrl.startsWith('http');
+
+const redis = isRedisConfigured 
+  ? new Redis({ url: redisUrl as string, token: redisToken as string })
+  : null;
+
+// Mock Ratelimit class if no Redis is configured (e.g., local dev)
+class MockRatelimit {
+  async limit(identifier: string) {
+    return { success: true, limit: 100, remaining: 99, reset: Date.now() + 60000 };
+  }
+}
 
 // Default ratelimit: 10 requests per 60 seconds per IP using sliding window
-export const ratelimit = new Ratelimit({
+export const ratelimit = isRedisConfigured && redis ? new Ratelimit({
   redis,
   limiter: Ratelimit.slidingWindow(10, '60 s'),
   analytics: true,
   prefix: '@upstash/ratelimit',
-});
+}) : new MockRatelimit();
 
 // Specific limiters for different routes
-export const inviteRatelimit = new Ratelimit({
+export const inviteRatelimit = isRedisConfigured && redis ? new Ratelimit({
   redis,
   limiter: Ratelimit.slidingWindow(5, '1 h'),
   analytics: true,
   prefix: '@upstash/ratelimit/invite',
-});
+}) : new MockRatelimit();
 
-export const deleteRatelimit = new Ratelimit({
+export const deleteRatelimit = isRedisConfigured && redis ? new Ratelimit({
   redis,
   limiter: Ratelimit.slidingWindow(20, '1 h'),
   analytics: true,
   prefix: '@upstash/ratelimit/delete',
-});
+}) : new MockRatelimit();
 
 export function getRealIP(request: Request): string {
   // Use x-forwarded-for header if available

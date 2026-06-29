@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { initializeMasterKey, loadOrCreateFamilyKey } from '@/lib/keys'
+import { initializeMasterKey, loadOrCreateFamilyKey, hasMasterValidationKey, setupMasterPassword, verifyMasterPassword } from '@/lib/keys'
 import { useVaultStore } from '@/store/vault.store'
 import { supabase } from '@/lib/supabase/client'
 
@@ -11,8 +11,10 @@ interface KeyInitModalProps {
 
 export default function KeyInitModal({ onSuccess }: KeyInitModalProps) {
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
   
   const [userId, setUserId] = useState<string | null>(null)
   const [familyId, setFamilyId] = useState<string | null>(null)
@@ -40,6 +42,14 @@ export default function KeyInitModal({ onSuccess }: KeyInitModalProps) {
             full_name: data.full_name || ''
           })
         }
+
+        // Check if user has set up their master password
+        try {
+          const needs = !(await hasMasterValidationKey(user.id))
+          setNeedsSetup(needs)
+        } catch (err) {
+          console.error(err)
+        }
       }
     }
     fetchUserContext()
@@ -51,7 +61,13 @@ export default function KeyInitModal({ onSuccess }: KeyInitModalProps) {
     setError(null)
 
     if (!password) {
-      setError('Password is required to unlock your vault.')
+      setError('Password is required.')
+      setLoading(false)
+      return
+    }
+
+    if (needsSetup && password !== confirmPassword) {
+      setError('Passwords do not match.')
       setLoading(false)
       return
     }
@@ -66,12 +82,20 @@ export default function KeyInitModal({ onSuccess }: KeyInitModalProps) {
       // 1. Initialize Master Key (Takes ~1 second due to PBKDF2 iterations)
       const masterKey = await initializeMasterKey(password, userId)
       
-      // 2. Load or create Family Key using the master key
+      // 2. Setup or Verify
+      if (needsSetup) {
+        await setupMasterPassword(userId, masterKey)
+        setNeedsSetup(false)
+      } else {
+        await verifyMasterPassword(userId, masterKey)
+      }
+
+      // 3. Load or create Family Key using the master key
       if (familyId) {
         await loadOrCreateFamilyKey(userId, familyId, masterKey)
       }
       
-      // 3. Mark session as fully ready
+      // 4. Mark session as fully ready
       useVaultStore.setState({ sessionReady: true })
       
       if (onSuccess) {
@@ -85,14 +109,20 @@ export default function KeyInitModal({ onSuccess }: KeyInitModalProps) {
   }
 
   // Prevent rendering if user context isn't loaded yet
-  if (!userId) return null
+  if (!userId || needsSetup === null) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
       <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl p-8 space-y-6">
         <div className="text-center">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">Unlock Vault</h2>
-          <p className="text-lg text-gray-600">Enter your master password to decrypt your keys locally.</p>
+          <h2 className="text-3xl font-bold text-gray-900 mb-2">
+            {needsSetup ? 'Create Master Password' : 'Unlock Vault'}
+          </h2>
+          <p className="text-lg text-gray-600">
+            {needsSetup 
+              ? 'This password encrypts everything. Do not lose it!' 
+              : 'Enter your master password to decrypt your keys locally.'}
+          </p>
         </div>
 
         {error && (
@@ -117,12 +147,28 @@ export default function KeyInitModal({ onSuccess }: KeyInitModalProps) {
             />
           </div>
 
+          {needsSetup && (
+            <div>
+              <label htmlFor="confirmPassword" className="block text-xl font-medium text-gray-800 mb-3">
+                Confirm Master Password
+              </label>
+              <input
+                id="confirmPassword"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full px-5 py-4 border border-gray-300 rounded-2xl shadow-sm text-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                disabled={loading}
+              />
+            </div>
+          )}
+
           <button
             type="submit"
             disabled={loading}
             className="w-full flex justify-center py-5 px-4 border border-transparent rounded-2xl shadow-md text-xl font-semibold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 transition-colors"
           >
-            {loading ? 'Decrypting Vault...' : 'Unlock'}
+            {loading ? 'Processing...' : (needsSetup ? 'Set Password' : 'Unlock')}
           </button>
         </form>
       </div>
