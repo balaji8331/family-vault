@@ -2,14 +2,15 @@ import type { NextConfig } from "next";
 
 const cspHeader = `
     default-src 'self';
-    script-src 'self' 'unsafe-eval' 'unsafe-inline';
-    worker-src blob: 'self';
+    script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net;
+    worker-src blob: 'self' https://cdn.jsdelivr.net;
     wasm-src 'self' blob:;
-    connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.resend.com;
+    connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.resend.com https://cdn.jsdelivr.net https://tessdata.projectnaptha.com;
     img-src 'self' blob: data:;
+    media-src 'self' blob:;
     style-src 'self' 'unsafe-inline';
     font-src 'self';
-    frame-src blob:;
+    frame-src 'self' blob:;
     object-src 'none';
     base-uri 'self';
 `;
