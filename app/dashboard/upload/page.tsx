@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import { useVaultStore } from '@/store/vault.store';
 import { generateDocumentKey, encryptFile, wrapKey } from '@/lib/crypto';
-import { compressImage, compressPDF } from '@/lib/compress';
+import { compressImage, compressPDF, compressDOCX, compressTXT } from '@/lib/compress';
 import { extractDocumentMetadata } from '@/lib/ocr';
 import { logAuditEvent } from '@/lib/audit';
 import { ErrorToast } from '@/components/ui/ErrorToast';
@@ -148,15 +148,29 @@ export default function UploadPage() {
     }
   };
 
+  const ACCEPTED_MIME_TYPES = [
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+    'application/msword',                                                       // .doc (legacy)
+    'text/plain',                                                               // .txt
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+  ];
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const droppedFile = e.dataTransfer.files[0];
-      if (['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(droppedFile.type)) {
+      if (ACCEPTED_MIME_TYPES.includes(droppedFile.type)) {
+        if (droppedFile.type === 'application/msword') {
+          setError('Legacy .doc files are not supported. Please convert to .docx and try again.');
+          return;
+        }
         setFile(droppedFile);
       } else {
-        setError('Only PDF, JPG, PNG, and WebP files are accepted.');
+        setError('Only PDF, DOCX, TXT, JPG, and PNG files are accepted.');
       }
     }
   };
@@ -173,13 +187,22 @@ export default function UploadPage() {
     setIsUploading(true);
     
     try {
-      // 1. Compress the file
+      // 1. Compress / pre-process the file based on MIME type
       setStatus('compressing');
       let optimizedFile = file;
       if (file.type.startsWith('image/')) {
         optimizedFile = await compressImage(file);
       } else if (file.type === 'application/pdf') {
         optimizedFile = await compressPDF(file);
+      } else if (
+        file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        file.name.toLowerCase().endsWith('.docx')
+      ) {
+        // DOCX is already a ZIP archive — pass through without re-compression
+        optimizedFile = await compressDOCX(file);
+      } else if (file.type === 'text/plain') {
+        // TXT files are tiny — pass through unchanged
+        optimizedFile = await compressTXT(file);
       }
       
       // 2. OCR Scan
@@ -400,7 +423,7 @@ export default function UploadPage() {
                         <CloudArrowUpIcon className="w-10 h-10" />
                       </div>
                       <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Tap to select or Drop your file here</h3>
-                      <p className="text-gray-500 dark:text-gray-400 mb-8 max-w-sm mx-auto">Supports PDF, JPG, PNG up to 10MB. It will be encrypted locally before upload.</p>
+                      <p className="text-gray-500 dark:text-gray-400 mb-8 max-w-sm mx-auto">Supports PDF, DOCX, TXT, JPG, PNG up to 10MB. Encrypted locally before upload — the server never sees your file.</p>
                       
                       <div className="flex flex-col sm:flex-row justify-center items-stretch gap-4 relative z-10" onClick={e => e.stopPropagation()}>
                         <button 
@@ -418,7 +441,7 @@ export default function UploadPage() {
                         </button>
                       </div>
                       
-                      <input type="file" className="hidden" ref={fileInputRef} accept=".pdf,image/jpeg,image/png,image/webp" onChange={handleFileSelect} />
+                      <input type="file" className="hidden" ref={fileInputRef} accept=".pdf,.docx,.txt,image/jpeg,image/png,image/webp" onChange={handleFileSelect} />
                       <input type="file" className="hidden" ref={cameraInputRef} accept="image/*" capture="environment" onChange={handleFileSelect} />
                     </div>
 

@@ -4,6 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { useVaultStore } from '@/store/vault.store';
 import { Users, UserPlus, Copy, LogOut, Trash2 } from 'lucide-react';
+import MemberCard from '@/components/family/MemberCard';
+import InviteMemberModal from '@/components/family/InviteMemberModal';
 
 export default function FamilyPage() {
   const currentUser = useVaultStore((state) => state.currentUser);
@@ -18,12 +20,7 @@ export default function FamilyPage() {
   // State 2: Has Family
   const [family, setFamily] = useState<any>(null);
   const [members, setMembers] = useState<any[]>([]);
-  const [showInviteForm, setShowInviteForm] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState('member');
-  const [inviting, setInviting] = useState(false);
-  const [inviteError, setInviteError] = useState<string | null>(null);
-  const [inviteSuccess, setInviteSuccess] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const fetchFamily = async () => {
@@ -37,7 +34,13 @@ export default function FamilyPage() {
       const { data: familyData } = await supabase.from('families').select('*').eq('id', currentUser.family_id).single();
       setFamily(familyData);
 
-      const { data: membersData } = await supabase.from('users').select('id, full_name, role, passkey_registered, created_at, email').eq('family_id', currentUser.family_id).order('created_at', { ascending: true });
+      // Explicit selection: DO NOT SELECT trusted_device_token
+      const { data: membersData } = await supabase
+        .from('users')
+        .select('id, full_name, role, passkey_registered, created_at, email')
+        .eq('family_id', currentUser.family_id)
+        .order('created_at', { ascending: true });
+        
       setMembers(membersData || []);
     } catch (err) {
       console.error('Failed to load family:', err);
@@ -64,9 +67,8 @@ export default function FamilyPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       
-      // Update local state
-      useVaultStore.getState().setCurrentUser({ ...currentUser, family_id: data.family_id, role: 'family_admin' });
-      window.location.reload(); // Refresh to catch new states
+      useVaultStore.getState().setCurrentUser({ ...currentUser, family_id: data.family_id, role: 'family_admin' } as any);
+      window.location.reload(); 
     } catch (err: any) {
       setErrorMsg(err.message);
       setActionLoading(false);
@@ -116,7 +118,7 @@ export default function FamilyPage() {
       const res = await fetch('/api/admin/delete-family', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ familyId: currentUser.family_id, adminId: currentUser.id })
+        body: JSON.stringify({ familyId: currentUser?.family_id, adminId: currentUser?.id })
       });
       if (!res.ok) throw new Error('Failed to dissolve family');
       window.location.reload();
@@ -130,59 +132,6 @@ export default function FamilyPage() {
       navigator.clipboard.writeText(family.family_code);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  const shareInvite = () => {
-    const text = `Join my FamilyVault space! Use code: ${family?.family_code} at ${window.location.origin}`;
-    if (navigator.share) {
-      navigator.share({ title: 'Join FamilyVault', text });
-    } else {
-      navigator.clipboard.writeText(text);
-      alert('Invite message copied to clipboard!');
-    }
-  };
-
-  const handleInvite = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inviteEmail || !currentUser) return;
-    setInviting(true);
-    setInviteError(null);
-    setInviteSuccess(false);
-
-    try {
-      const res = await fetch('/api/invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: inviteEmail,
-          familyId: currentUser.family_id,
-          role: inviteRole,
-          inviterId: currentUser.id
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to invite user');
-
-      setInviteSuccess(true);
-      setInviteEmail('');
-      fetchFamily();
-      setTimeout(() => setShowInviteForm(false), 2000);
-    } catch (err: any) {
-      setInviteError(err.message);
-    } finally {
-      setInviting(false);
-    }
-  };
-
-  const handleRemove = async (id: string) => {
-    if (!confirm('Are you sure you want to remove this member?')) return;
-    try {
-      await supabase.from('users').update({ family_id: null, role: 'member' }).eq('id', id);
-      setMembers(members.filter(m => m.id !== id));
-    } catch (err) {
-      console.error('Failed to remove member', err);
     }
   };
 
@@ -296,12 +245,6 @@ export default function FamilyPage() {
               </button>
             </div>
             {copied && <span className="absolute -top-8 bg-black/70 text-white text-xs px-2 py-1 rounded">Copied!</span>}
-            <button 
-              onClick={shareInvite}
-              className="mt-4 w-full py-2 bg-white text-blue-800 font-semibold rounded-xl hover:bg-blue-50 transition-colors"
-            >
-              Share Invite
-            </button>
           </div>
         </div>
       </div>
@@ -310,83 +253,47 @@ export default function FamilyPage() {
       <div>
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Members</h2>
+          {(currentUser?.role === 'family_admin' || currentUser?.role === 'super_admin') && (
+            <button 
+              onClick={() => setShowInviteModal(true)}
+              className="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl shadow-sm transition-colors"
+            >
+              <UserPlus className="w-5 h-5 mr-2" />
+              Invite Member
+            </button>
+          )}
         </div>
         
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-          {members.map((member: any, index: number) => (
-            <div key={member.id} className={`p-6 flex items-center justify-between ${index !== members.length - 1 ? 'border-b border-gray-100 dark:border-gray-700' : ''}`}>
-              <div className="flex items-center">
-                <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-lg mr-4 uppercase">
-                  {member.full_name?.charAt(0) || 'U'}
-                </div>
-                <div>
-                  <h4 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
-                    {member.full_name || 'Unnamed User'}
-                    {member.id === currentUser?.id && <span className="ml-2 text-xs font-medium px-2.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">You</span>}
-                    {member.passkey_registered && (
-                      <span className="ml-2 text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded border border-green-200">Passkey</span>
-                    )}
-                  </h4>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {member.email ? `${member.email} \u2022 ` : ''}Joined {new Date(member.created_at).toLocaleDateString()}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-4">
-                <span className="text-sm font-medium px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg capitalize">
-                  {member.role.replace('_', ' ')}
-                </span>
-                {(currentUser?.role === 'family_admin' || currentUser?.role === 'super_admin') && member.id !== currentUser?.id && (
-                  <button 
-                    onClick={() => handleRemove(member.id)}
-                    className="text-red-500 hover:text-red-700 p-2 hover:bg-red-50 rounded-lg transition-colors"
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
+        <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+          {members.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">No members found.</div>
+          ) : (
+            members.map((member) => (
+              <MemberCard 
+                key={member.id} 
+                member={member} 
+                currentUserId={currentUser!.id} 
+                currentUserRole={currentUser!.role}
+                onRefresh={fetchFamily}
+              />
+            ))
+          )}
         </div>
       </div>
 
-      {/* Invite Panel (Admin Only) */}
-      {(currentUser?.role === 'family_admin' || currentUser?.role === 'super_admin') && (
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
-          <h3 className="text-lg font-bold mb-2 text-gray-900 dark:text-white">Invite via Email</h3>
-          <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">Send a direct email invitation if you prefer not to share the code directly.</p>
-          <form onSubmit={handleInvite} className="flex flex-col sm:flex-row gap-4">
-            <input 
-              type="email" 
-              required
-              placeholder="Email address" 
-              value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
-              className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-            />
-            <select 
-              value={inviteRole}
-              onChange={(e) => setInviteRole(e.target.value)}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="member">Member</option>
-              <option value="family_admin">Family Admin</option>
-            </select>
-            <button 
-              type="submit" 
-              disabled={inviting}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium rounded-xl shadow-sm transition-colors"
-            >
-              {inviting ? 'Inviting...' : 'Send Invite'}
-            </button>
-          </form>
-          {inviteError && <p className="mt-3 text-red-500 text-sm">{inviteError}</p>}
-          {inviteSuccess && <p className="mt-3 text-green-500 text-sm">Invitation sent successfully!</p>}
-        </div>
+      {showInviteModal && (
+        <InviteMemberModal 
+          familyId={currentUser.family_id!} 
+          onClose={() => setShowInviteModal(false)}
+          onSuccess={() => {
+            setShowInviteModal(false);
+            fetchFamily();
+          }}
+        />
       )}
 
       {/* Danger Zone */}
-      <div className="border border-red-200 dark:border-red-900/50 bg-red-50/50 dark:bg-red-900/10 rounded-2xl p-6">
+      <div className="border border-red-200 dark:border-red-900/50 bg-red-50/50 dark:bg-red-900/10 rounded-2xl p-6 mt-12">
         <h3 className="text-lg font-bold text-red-700 dark:text-red-400 mb-4">Danger Zone</h3>
         <div className="flex flex-col sm:flex-row gap-4">
           <button 

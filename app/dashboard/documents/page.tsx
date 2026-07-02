@@ -7,11 +7,28 @@ import ExpiryBadge from '@/components/documents/ExpiryBadge';
 import { useRouter } from 'next/navigation';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useQueryClient } from '@tanstack/react-query';
+import DocumentCard from '@/components/documents/DocumentCard';
 import { 
   IdCard, CreditCard, BookOpen, Car, Shield, Home, Truck, Baby, 
   Heart, Landmark, Activity, Plane, FileText, Share2, Trash2,
-  ChevronDown, ChevronRight, Upload as UploadIcon, Search as SearchIcon
+  ChevronDown, ChevronRight, Upload as UploadIcon, Search as SearchIcon,
+  GraduationCap, ScrollText, Wallet, Vote, CalendarCheck, Users, BookMarked
 } from 'lucide-react';
+import ShareDocumentModal from '@/components/documents/ShareDocumentModal';
+
+
+export interface DocumentRecord {
+  id: string;
+  owner_id: string;
+  family_id: string;
+  file_name: string;
+  file_path: string;
+  mime_type: string;
+  iv: string;
+  doc_type: string;
+  expiry_date: string | null;
+  uploaded_at: string;
+}
 
 const DOC_TYPE_ICONS: Record<string, React.ElementType> = {
   aadhar: IdCard,
@@ -21,11 +38,23 @@ const DOC_TYPE_ICONS: Record<string, React.ElementType> = {
   insurance: Shield,
   property: Home,
   vehicle_rc: Truck,
+  vehical_rc: Truck,          // typo variant from upload page
   birth_certificate: Baby,
+  dob_certificate: Baby,
   marriage_certificate: Heart,
   bank_statement: Landmark,
+  bank_passbook: Wallet,
   medical: Activity,
   visa: Plane,
+  ration_card: ScrollText,
+  voter_id: Vote,
+  cast_certificate: Users,
+  '10th_marklist': GraduationCap,
+  '12th_marklist': GraduationCap,
+  degree_certificate: GraduationCap,
+  degree_marsheet: BookMarked,
+  degree_tc: ScrollText,
+  '12th_tc': ScrollText,
   other: FileText,
 };
 
@@ -37,11 +66,23 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   insurance: 'Insurance',
   property: 'Property Documents',
   vehicle_rc: 'Vehicle RC',
+  vehical_rc: 'Vehicle RC',
   birth_certificate: 'Birth Certificate',
+  dob_certificate: 'Date of Birth Certificate',
   marriage_certificate: 'Marriage Certificate',
   bank_statement: 'Bank Statement',
+  bank_passbook: 'Bank Passbook',
   medical: 'Medical Records',
   visa: 'Visa',
+  ration_card: 'Ration Card',
+  voter_id: 'Voter ID',
+  cast_certificate: 'Caste Certificate',
+  '10th_marklist': '10th Marklist',
+  '12th_marklist': '12th Marklist',
+  degree_certificate: 'Degree Certificate',
+  degree_marsheet: 'Degree Marksheet',
+  degree_tc: 'Degree TC',
+  '12th_tc': '12th TC',
   other: 'Other',
 };
 
@@ -51,15 +92,18 @@ export default function DocumentsPage() {
   const currentUser = useVaultStore((state) => state.currentUser);
   
   const [loading, setLoading] = useState(true);
-  const [documents, setDocuments] = useState<any[]>([]);
+  const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   
   // Delete Modal State
-  const [documentToDelete, setDocumentToDelete] = useState<any>(null);
+  const [documentToDelete, setDocumentToDelete] = useState<DocumentRecord | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  
+  // Share Modal State
+  const [documentToShare, setDocumentToShare] = useState<DocumentRecord | null>(null);
 
   useEffect(() => {
     async function fetchDocs() {
@@ -77,9 +121,9 @@ export default function DocumentsPage() {
           .select('document_id')
           .eq('granted_to', currentUser.id);
 
-        let sharedDocs: any[] = [];
+        let sharedDocs: DocumentRecord[] = [];
         if (accessData && accessData.length > 0) {
-          const docIds = accessData.map((a: any) => a.document_id);
+          const docIds = accessData.map((a: { document_id: string }) => a.document_id);
           const { data: sDocs } = await supabase
             .from('documents')
             .select('*')
@@ -164,48 +208,34 @@ export default function DocumentsPage() {
   const sharedDocs = filteredDocs.filter(doc => doc.owner_id !== currentUser?.id);
   const ownDocs = filteredDocs.filter(doc => doc.owner_id === currentUser?.id);
   
-  const groupedDocs: Record<string, any[]> = {};
+  const groupedDocs: Record<string, DocumentRecord[]> = {};
   ownDocs.forEach(doc => {
-    const type = doc.doc_type || 'other';
+    // Normalise: if doc_type isn't in our label map, bucket it under 'other'
+    // so it always appears rather than silently vanishing.
+    const rawType = doc.doc_type || 'other';
+    const type = rawType in DOC_TYPE_LABELS ? rawType : 'other';
     if (!groupedDocs[type]) groupedDocs[type] = [];
     groupedDocs[type].push(doc);
   });
 
+  const canShareDoc = (doc: DocumentRecord) =>
+    doc.owner_id === currentUser?.id ||
+    currentUser?.role === 'family_admin' ||
+    currentUser?.role === 'super_admin';
+
   const renderDocumentRow = (doc: any, isShared: boolean) => (
-    <div key={doc.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group">
-      <div className="flex items-center space-x-3 mb-3 sm:mb-0">
-        <div className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0">
-          <FileText className="w-5 h-5 text-gray-500" />
-        </div>
-        <div>
-          <h4 className="font-medium text-sm text-gray-900 dark:text-white line-clamp-1">{doc.file_name}</h4>
-          <div className="flex items-center space-x-2 mt-1">
-            <span className="text-xs text-gray-500">{new Date(doc.uploaded_at).toLocaleDateString()}</span>
-            {doc.expiry_date && <ExpiryBadge expiryDate={doc.expiry_date} />}
-          </div>
-        </div>
-      </div>
-      <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
-        <button 
-          onClick={() => router.push(`/dashboard/documents/${doc.id}`)}
-          className="px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 rounded-lg transition-colors"
-        >
-          View
-        </button>
-        {!isShared && (
-          <button 
-            onClick={() => setDocumentToDelete(doc)}
-            className="px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 rounded-lg transition-colors flex items-center"
-          >
-            <Trash2 className="w-4 h-4 md:mr-1" />
-            <span className="hidden md:inline">Delete</span>
-          </button>
-        )}
-      </div>
-    </div>
+    <DocumentCard 
+      key={doc.id}
+      doc={doc}
+      isShared={isShared}
+      onView={(id) => router.push(`/dashboard/documents/${id}`)}
+      onDelete={setDocumentToDelete}
+      onShare={setDocumentToShare}
+      canShare={canShareDoc(doc)}
+    />
   );
 
-  const renderGroup = (key: string, label: string, Icon: React.ElementType, docs: any[], isShared: boolean = false) => {
+  const renderGroup = (key: string, label: string, Icon: React.ElementType, docs: DocumentRecord[], isShared: boolean = false) => {
     if (docs.length === 0) return null;
     const isExpanded = expandedSections[key] !== false; // Default to true
 
@@ -237,7 +267,8 @@ export default function DocumentsPage() {
     );
   };
 
-  // Prepare standard groups in order
+  // Render every known doc type that has documents, in the canonical label order.
+  // 'other' is always rendered last.
   const standardGroups = Object.keys(DOC_TYPE_LABELS).filter(k => k !== 'other');
   
   return (
@@ -327,6 +358,15 @@ export default function DocumentsPage() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+      {/* Share Document Modal */}
+      {documentToShare && (
+        <ShareDocumentModal
+          documentId={documentToShare.id}
+          documentName={documentToShare.file_name}
+          ownerId={documentToShare.owner_id}
+          onClose={() => setDocumentToShare(null)}
+        />
+      )}
 
     </div>
   );

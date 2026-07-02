@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import DocumentViewerPage from '@/app/(dashboard)/documents/[id]/page';
+import DocumentViewerPage from '@/app/dashboard/documents/[id]/page';
 import { useVaultStore } from '@/store/vault.store';
 import { supabase } from '@/lib/supabase/client';
 

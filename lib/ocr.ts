@@ -1,4 +1,5 @@
 import Tesseract from 'tesseract.js';
+import mammoth from 'mammoth';
 
 interface OCRResult {
   extracted_name: string | null;
@@ -6,99 +7,138 @@ interface OCRResult {
   expiry_date: string | null;
 }
 
-export async function extractDocumentMetadata(
-  file: File,
-  docType: string,
-  onProgress?: (progress: number) => void
-): Promise<OCRResult> {
+/** MIME types that carry structured identity text we can attempt to parse. */
+const IDENTITY_DOC_TYPES = ['aadhar', 'pan', 'passport', 'driving_license', 'voter_id'];
+
+/**
+ * Runs the shared regex extractors against a block of plain text.
+ * Used by both the TXT and DOCX branches to avoid code duplication.
+ */
+function extractFromText(text: string, docType: string): OCRResult {
   const result: OCRResult = {
     extracted_name: null,
     extracted_doc_number: null,
     expiry_date: null,
   };
 
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  const joinedText = lines.join(' ');
+
+  // 1. Extract Name
+  const nameMatch = joinedText.match(/(?:Name|नाम)\s*[:\-]?\s*([A-Z\s]{3,40})/i);
+  if (nameMatch?.[1]) {
+    result.extracted_name = nameMatch[1].trim();
+  }
+
+  // 2. Extract Document Number based on type
+  const normalizedType = docType.toLowerCase();
+
+  if (normalizedType.includes('aadhar')) {
+    const m = joinedText.match(/\b\d{4}\s?\d{4}\s?\d{4}\b/);
+    if (m) result.extracted_doc_number = m[0].replace(/\s/g, '');
+  } else if (normalizedType.includes('pan')) {
+    const m = joinedText.match(/\b[A-Z]{5}[0-9]{4}[A-Z]{1}\b/i);
+    if (m) result.extracted_doc_number = m[0].toUpperCase();
+  } else if (normalizedType.includes('passport')) {
+    const m = joinedText.match(/\b[A-PR-WYa-pr-wy][1-9]\d\s?\d{4}[1-9]\b/i);
+    if (m) result.extracted_doc_number = m[0].replace(/\s/g, '').toUpperCase();
+  }
+
+  // 3. Extract Expiry Date (DD/MM/YYYY)
+  const allDates = [...joinedText.matchAll(/\b(\d{2}\/\d{2}\/\d{4})\b/g)];
+  if (allDates.length > 0) {
+    const lastDate = allDates[allDates.length - 1][1];
+    const [day, month, year] = lastDate.split('/');
+    result.expiry_date = `${year}-${month}-${day}`;
+  }
+
+  return result;
+}
+
+/**
+ * Extracts document metadata from a file using OCR (images), direct text
+ * decoding (TXT), or mammoth text extraction (DOCX).
+ *
+ * Never throws — always returns an OCRResult (fields may be null).
+ *
+ * @param file         The file to extract metadata from.
+ * @param docType      The user-selected document type slug (e.g. 'aadhar').
+ * @param onProgress   Optional callback receiving 0–100 progress (images only).
+ */
+export async function extractDocumentMetadata(
+  file: File,
+  docType: string,
+  onProgress?: (progress: number) => void
+): Promise<OCRResult> {
+  const emptyResult: OCRResult = {
+    extracted_name: null,
+    extracted_doc_number: null,
+    expiry_date: null,
+  };
+
   try {
-    let imageUrl: string | null = null;
+    // ── Branch 1: Plain text ──────────────────────────────────────────────
+    if (file.type === 'text/plain') {
+      if (onProgress) onProgress(50);
+      const raw = await file.text();
+      if (onProgress) onProgress(100);
+      return extractFromText(raw, docType);
+    }
 
+    // ── Branch 2: DOCX ───────────────────────────────────────────────────
+    if (
+      file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      file.name.toLowerCase().endsWith('.docx')
+    ) {
+      if (onProgress) onProgress(30);
+      const arrayBuffer = await file.arrayBuffer();
+      if (onProgress) onProgress(60);
+      // mammoth extracts raw paragraphs as plain text — no HTML overhead needed for OCR
+      const { value: rawText } = await mammoth.extractRawText({ arrayBuffer });
+      if (onProgress) onProgress(100);
+      // Only attempt extraction for identity-style doc types
+      const isIdentityDoc = IDENTITY_DOC_TYPES.some(t => docType.toLowerCase().includes(t));
+      if (!isIdentityDoc) return emptyResult;
+      return extractFromText(rawText, docType);
+    }
+
+    // ── Branch 3: PDF ────────────────────────────────────────────────────
+    if (file.type === 'application/pdf') {
+      // Full PDF rasterisation for OCR requires pdfjs-dist (heavy WASM).
+      // We skip it to prevent crashes and keep the bundle lean.
+      console.warn('Client-side OCR for PDFs requires pdfjs-dist. Skipping OCR.');
+      return emptyResult;
+    }
+
+    // ── Branch 4: Images (Tesseract) ─────────────────────────────────────
     if (file.type.startsWith('image/')) {
-      imageUrl = URL.createObjectURL(file);
-    } else if (file.type === 'application/pdf') {
-      // Note: pdf-lib does not support rasterizing PDFs to images for OCR.
-      // Full PDF text extraction/rendering would require pdfjs-dist.
-      // Skipping OCR for PDFs on the client-side to prevent crashes.
-      console.warn("Client-side OCR for PDFs requires pdfjs-dist. Skipping OCR.");
-      return result;
+      const imageUrl = URL.createObjectURL(file);
+      let worker;
+      try {
+        worker = await Tesseract.createWorker({
+          logger: (m) => {
+            if (m.status === 'recognizing text' && onProgress) {
+              onProgress(Math.round(m.progress * 100));
+            }
+          },
+        });
+
+        await worker.loadLanguage('eng');
+        await worker.initialize('eng');
+
+        const { data: { text } } = await worker.recognize(imageUrl);
+        return extractFromText(text, docType);
+      } finally {
+        if (worker) await worker.terminate();
+        URL.revokeObjectURL(imageUrl);
+      }
     }
 
-    if (!imageUrl) return result;
+    // Unsupported type — return empty gracefully
+    return emptyResult;
 
-    let worker;
-    try {
-      worker = await Tesseract.createWorker({
-        logger: (m) => {
-          if (m.status === 'recognizing text' && onProgress) {
-            onProgress(Math.round(m.progress * 100));
-          }
-        },
-      });
-
-      await worker.loadLanguage('eng');
-      await worker.initialize('eng');
-      
-      const { data: { text } } = await worker.recognize(imageUrl);
-      
-      // Parse the raw text
-      const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-      const joinedText = lines.join(' ');
-      
-      // 1. Extract Name
-      // Look for lines that might be names (very basic heuristic)
-      // Often names are near the top or after "Name:" or "नाम"
-      const nameMatch = joinedText.match(/(?:Name|नाम)\s*[:\-]?\s*([A-Z\s]{3,40})/i);
-      if (nameMatch && nameMatch[1]) {
-        result.extracted_name = nameMatch[1].trim();
-      }
-
-      // 2. Extract Document Number based on type
-      const normalizedType = docType.toLowerCase();
-      
-      if (normalizedType.includes('aadhar')) {
-        // 12 digits, possibly with spaces
-        const aadharMatch = joinedText.match(/\b\d{4}\s?\d{4}\s?\d{4}\b/);
-        if (aadharMatch) result.extracted_doc_number = aadharMatch[0].replace(/\s/g, '');
-      } else if (normalizedType.includes('pan')) {
-        // 5 letters, 4 numbers, 1 letter
-        const panMatch = joinedText.match(/\b[A-Z]{5}[0-9]{4}[A-Z]{1}\b/i);
-        if (panMatch) result.extracted_doc_number = panMatch[0].toUpperCase();
-      } else if (normalizedType.includes('passport')) {
-        // 1 letter, 7 numbers
-        const passportMatch = joinedText.match(/\b[A-PR-WYa-pr-wy][1-9]\d\s?\d{4}[1-9]\b/i);
-        if (passportMatch) result.extracted_doc_number = passportMatch[0].replace(/\s/g, '').toUpperCase();
-      }
-
-      // 3. Extract Expiry Date (DD/MM/YYYY or MM/YYYY)
-      const dateMatch = joinedText.match(/\b(\d{2}\/\d{2}\/\d{4})\b/);
-      if (dateMatch) {
-        // Usually multiple dates exist (DOB, Issue Date, Expiry). 
-        // We just grab the last valid looking date as a simple heuristic for expiry.
-        const allDates = [...joinedText.matchAll(/\b(\d{2}\/\d{2}\/\d{4})\b/g)];
-        if (allDates.length > 0) {
-          // Assume the last date is expiry if there are multiple
-          const lastDate = allDates[allDates.length - 1][1];
-          // Convert DD/MM/YYYY to YYYY-MM-DD for database
-          const [day, month, year] = lastDate.split('/');
-          result.expiry_date = `${year}-${month}-${day}`;
-        }
-      }
-
-    } finally {
-      if (worker) await worker.terminate();
-      URL.revokeObjectURL(imageUrl);
-    }
-
-    return result;
   } catch (error) {
     console.error('OCR Extraction failed:', error);
-    return result; // Never throw, always return object
+    return emptyResult; // Never throw — always return object
   }
 }
