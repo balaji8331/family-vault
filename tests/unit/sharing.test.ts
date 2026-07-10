@@ -160,7 +160,7 @@ describe('shareDocument server action', () => {
 describe('revokeShare server action', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('deletes both document_access and encryption_keys rows', async () => {
+  it('deletes the document_access row and does NOT wipe the recipient encryption_keys', async () => {
     (createClient as any).mockResolvedValue(
       buildSessionClient('owner-1', 'member', 'fam-1')
     );
@@ -190,9 +190,11 @@ describe('revokeShare server action', () => {
     const result = await revokeShare('doc-1', 'recipient-1');
     expect(result.error).toBeUndefined();
 
-    // Both deletions must have been triggered
+    // Only the document_access row is removed — that fully revokes access.
     expect(accessDelete).toHaveBeenCalled();
-    expect(keysDelete).toHaveBeenCalled();
+    // The recipient's encryption_keys must NOT be touched (regression guard against the
+    // old data-loss bug that wiped the victim's entire vault on a single revoke).
+    expect(keysDelete).not.toHaveBeenCalled();
   });
 });
 

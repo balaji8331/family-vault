@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, ActivityIndicator, Clipboard } from 'react-native';
 import { supabase } from '../../lib/supabase';
 import { useVaultStore } from '../../store/vault.store';
-import Clipboard from '@react-native-clipboard/clipboard';
 import { Users, Copy, UserPlus, LogOut, Trash2 } from 'lucide-react-native';
 
 export default function FamilyScreen() {

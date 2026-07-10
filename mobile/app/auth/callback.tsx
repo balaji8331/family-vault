@@ -17,15 +17,21 @@ export default function AuthCallback() {
       try {
         let sessionError = null;
 
-        // Magic link uses hash fragment, OAuth uses code in query params
+        // Magic link uses hash fragment, OAuth uses code in query params.
+        // supabase-js has no getSessionFromUrl() in React Native (that was a supabase-js
+        // v1 / browser-only API); instead we parse the tokens out of the hash fragment and
+        // establish the session explicitly via setSession().
         if (url.includes('#access_token=') || url.includes('#type=')) {
-          const { error } = await supabase.auth.getSessionFromUrl({
-            storeSession: true,
-          });
-          // Note: In RN, Supabase might not parse it automatically from window.location,
-          // so we might need to manually set session or pass the URL if the API supports it.
-          // The user requested calling getSessionFromUrl(), so we do.
-          if (error) sessionError = error;
+          const hash = url.substring(url.indexOf('#') + 1);
+          const params = new URLSearchParams(hash);
+          const access_token = params.get('access_token');
+          const refresh_token = params.get('refresh_token');
+          if (access_token && refresh_token) {
+            const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+            if (error) sessionError = error;
+          } else {
+            sessionError = new Error('Magic-link callback is missing access/refresh tokens.');
+          }
         } else if (url.includes('?code=')) {
           const urlObj = new URL(url.replace('#', '?')); // URL polyfill handles some issues
           const code = urlObj.searchParams.get('code');

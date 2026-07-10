@@ -4,7 +4,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { supabase } from '../../../lib/supabase';
 import { useVaultStore } from '../../../store/vault.store';
 import { decryptFile, unwrapKeyMobile } from '../../../lib/crypto';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Linking from 'expo-linking';
 import { Share, Download } from 'lucide-react-native';
 import { Buffer } from 'buffer';
@@ -32,7 +32,13 @@ export default function DocumentViewer() {
         return;
       }
 
-      const docKeyBuffer = unwrapKeyMobile(Buffer.from(access.wrapped_key, 'base64'), masterKey);
+      const wrappedKeyBytes = Buffer.from(access.wrapped_key, 'base64');
+      // Buffer may be a view into a shared pool — copy to a tightly-bounded ArrayBuffer.
+      const wrappedKeyAb = wrappedKeyBytes.buffer.slice(
+        wrappedKeyBytes.byteOffset,
+        wrappedKeyBytes.byteOffset + wrappedKeyBytes.byteLength,
+      );
+      const docKeyBuffer = unwrapKeyMobile(wrappedKeyAb, masterKey);
 
       const { data: blob } = await supabase.storage.from('documents').download(document.file_path);
       if (!blob) return;

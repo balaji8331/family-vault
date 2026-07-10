@@ -5,12 +5,12 @@ import { supabase } from '../../../lib/supabase';
 import { useVaultStore } from '../../../store/vault.store';
 import { 
   FileText, Search, Share2, Trash2, ChevronDown, ChevronRight,
-  IdCard, CreditCard, BookOpen, Car, Shield, Home, Truck, Baby, 
+  Fingerprint, CreditCard, BookOpen, Car, Shield, Home, Truck, Baby,
   Heart, Landmark, Activity, Plane
 } from 'lucide-react-native';
 
 const DOC_TYPE_ICONS: Record<string, any> = {
-  aadhaar: IdCard,
+  aadhaar: Fingerprint,
   pan: CreditCard,
   passport: BookOpen,
   driving_license: Car,

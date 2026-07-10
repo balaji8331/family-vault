@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { randomBytes } from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import { logAuditEvent } from '@/lib/audit';
@@ -17,10 +18,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Family name is required' }, { status: 400 });
     }
 
-    // 1. Create family (trigger generates family_code)
+    // 1. Create family (trigger generates family_code).
+    // key_seed is the family's secret from which every member locally derives the
+    // ONE shared family key (see lib/crypto.ts deriveFamilyKey). 256 bits of entropy.
+    const keySeed = randomBytes(32).toString('base64');
     const { data: newFamily, error: familyError } = await supabaseAdmin
       .from('families')
-      .insert({ name, created_by: session.user.id })
+      .insert({ name, created_by: session.user.id, key_seed: keySeed })
       .select()
       .single();
 
@@ -44,7 +48,7 @@ export async function POST(request: Request) {
     }
 
     // 3. Log Audit
-    await logAuditEvent('create_family', 'family', newFamily.id, session.user.id, newFamily.id);
+    await logAuditEvent('create_family', 'family', newFamily.id, undefined, session.user.id, newFamily.id);
 
     return NextResponse.json({ 
       family_code: newFamily.family_code, 

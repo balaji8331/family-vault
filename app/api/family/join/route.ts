@@ -42,7 +42,7 @@ export async function POST(request: Request) {
 
     if (updateError) throw updateError;
 
-    await logAuditEvent('join_family', 'family', family.id, session.user.id, family.id);
+    await logAuditEvent('join_family', 'family', family.id, undefined, session.user.id, family.id);
 
     return NextResponse.json({ success: true, family_name: family.name, family_id: family.id });
 

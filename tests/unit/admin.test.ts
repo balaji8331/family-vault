@@ -88,7 +88,8 @@ describe('Admin API Routes', () => {
     const res = await deleteFamily(req);
     expect(res.status).toBe(200);
     expect(mockStorage.from).toHaveBeenCalledWith('documents');
-    expect(res.body.success).toBe(true);
+    // The mocked NextResponse.json stores the payload directly on `.body`.
+    expect((res as any).body.success).toBe(true);
   });
 
   it('suspend-family blocks member access (simulated)', async () => {

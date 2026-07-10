@@ -42,6 +42,31 @@ export async function deriveKeyFromPassword(password: string, salt: Uint8Array):
 }
 
 /**
+ * Derives the ONE shared family AES-256-GCM key from a family's secret `key_seed`.
+ *
+ * All members of a family derive the identical key from the same server-stored
+ * `key_seed` (a random 256-bit secret on the `families` row), so a document key
+ * wrapped with the family key by one member can be unwrapped by any other member.
+ * The salt is derived from the familyId, so it needs no separate storage.
+ *
+ * NOTE ON TRADE-OFF: because the key is derived from a server-stored seed rather
+ * than wrapped with each member's master key, the server *could* in principle
+ * derive the family key. This is a deliberate, pragmatic choice: the system has no
+ * asymmetric-key infrastructure, and this is the only scheme that lets a member who
+ * joins later derive the shared key locally with no admin-online re-wrap step. The
+ * per-member envelope alternative (true zero-knowledge) is a larger follow-up.
+ *
+ * @param keySeed The family's secret seed (base64), from `families.key_seed`.
+ * @param familyId The family group ID, used to derive the salt.
+ * @returns The shared family CryptoKey (usable for wrap/unwrap/encrypt/decrypt).
+ */
+export async function deriveFamilyKey(keySeed: string, familyId: string): Promise<CryptoKey> {
+  const enc = new TextEncoder();
+  const salt = enc.encode(`family:${familyId}`);
+  return deriveKeyFromPassword(keySeed, salt);
+}
+
+/**
  * Encrypts file data using AES-256-GCM.
  * 
  * @param file The file to be encrypted.
@@ -74,7 +99,7 @@ export async function decryptFile(encryptedData: ArrayBuffer, iv: Uint8Array, ke
   return window.crypto.subtle.decrypt(
     {
       name: AES_GCM_ALGORITHM,
-      iv: iv,
+      iv: iv as unknown as BufferSource,
     },
     key,
     encryptedData

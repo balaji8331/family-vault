@@ -115,16 +115,16 @@ export async function extractDocumentMetadata(
       const imageUrl = URL.createObjectURL(file);
       let worker;
       try {
-        worker = await Tesseract.createWorker({
-          logger: (m) => {
+        // tesseract.js v7: createWorker(langs, oem, options) loads + initializes the
+        // language in one call. The separate loadLanguage()/initialize() steps were
+        // removed in v5+, and the logger now lives in the options (3rd) argument.
+        worker = await Tesseract.createWorker('eng', undefined, {
+          logger: (m: { status: string; progress: number }) => {
             if (m.status === 'recognizing text' && onProgress) {
               onProgress(Math.round(m.progress * 100));
             }
           },
         });
-
-        await worker.loadLanguage('eng');
-        await worker.initialize('eng');
 
         const { data: { text } } = await worker.recognize(imageUrl);
         return extractFromText(text, docType);

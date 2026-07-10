@@ -1,5 +1,5 @@
 import { useVaultStore } from '@/store/vault.store'
-import { deriveKeyFromPassword, generateDocumentKey, wrapKey, unwrapKey } from '@/lib/crypto'
+import { deriveKeyFromPassword, deriveFamilyKey, generateDocumentKey, wrapKey, unwrapKey } from '@/lib/crypto'
 import { supabase } from '@/lib/supabase/client'
 
 /**
@@ -111,54 +111,30 @@ export async function verifyMasterPassword(userId: string, masterKey: CryptoKey)
 }
 
 /**
- * Loads an existing family key from the database or creates a new one if it doesn't exist.
- * The family key is securely wrapped with the user's master key before storage.
- * 
- * @param userId The user's unique ID
+ * Loads the ONE shared family key for a family by deriving it from the family's
+ * secret `key_seed`. Every member derives the identical key, so a document key
+ * wrapped with the family key by one member can be unwrapped by any other member.
+ *
+ * This replaces the previous per-user scheme, which minted a *different* random key
+ * for each user and therefore made cross-member sharing impossible to decrypt.
+ *
  * @param familyId The family group ID
- * @param masterKey The user's master CryptoKey
- * @returns The unwrapped family CryptoKey
+ * @returns The shared family CryptoKey
  */
-export async function loadOrCreateFamilyKey(userId: string, familyId: string, masterKey: CryptoKey): Promise<CryptoKey> {
-  const { data: existingKeyRow, error: fetchError } = await supabase
-    .from('encryption_keys')
-    .select('encrypted_key')
-    .eq('key_type', 'family')
-    .eq('user_id', userId)
+export async function loadFamilyKey(familyId: string): Promise<CryptoKey> {
+  const { data: family, error } = await supabase
+    .from('families')
+    .select('key_seed')
+    .eq('id', familyId)
     .single()
 
-  if (fetchError && fetchError.code !== 'PGRST116') {
-    // PGRST116 indicates 0 rows returned, which is fine here.
-    throw new Error('Failed to fetch family key: ' + fetchError.message)
+  if (error || !family?.key_seed) {
+    throw new Error('Failed to load family key material: ' + (error?.message ?? 'no key_seed on family'))
   }
 
-  if (existingKeyRow && existingKeyRow.encrypted_key) {
-    // Unwrap the existing key using the newly derived master key
-    const wrappedKeyBuffer = base64ToArrayBuffer(existingKeyRow.encrypted_key)
-    const familyKey = await unwrapKey(wrappedKeyBuffer, masterKey)
-    useVaultStore.getState().setFamilyKey(familyKey)
-    return familyKey
-  } else {
-    // Generate a new family key from scratch
-    const familyKey = await generateDocumentKey()
-    const wrappedKeyBuffer = await wrapKey(familyKey, masterKey)
-    const wrappedKeyBase64 = arrayBufferToBase64(wrappedKeyBuffer)
-
-    const { error: insertError } = await supabase
-      .from('encryption_keys')
-      .insert({
-        key_type: 'family',
-        user_id: userId,
-        encrypted_key: wrappedKeyBase64
-      })
-
-    if (insertError) {
-      throw new Error('Failed to store family key: ' + insertError.message)
-    }
-
-    useVaultStore.getState().setFamilyKey(familyKey)
-    return familyKey
-  }
+  const familyKey = await deriveFamilyKey(family.key_seed, familyId)
+  useVaultStore.getState().setFamilyKey(familyKey)
+  return familyKey
 }
 
 /**

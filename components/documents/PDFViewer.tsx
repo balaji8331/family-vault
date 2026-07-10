@@ -87,7 +87,8 @@ export default function PDFViewer({ pdfData }: PDFViewerProps) {
       canvas.style.width  = `${viewport.width}px`;
       canvas.style.height = `${viewport.height}px`;
 
-      const renderTask = page.render({ canvasContext: ctx, viewport });
+      // pdfjs-dist v6 requires `canvas` in RenderParameters alongside canvasContext.
+      const renderTask = page.render({ canvas, canvasContext: ctx, viewport });
       renderTaskRef.current = renderTask;
       await renderTask.promise;
     } catch (err: any) {

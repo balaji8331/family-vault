@@ -52,7 +52,8 @@ export async function compressPDF(file: File): Promise<File> {
 
     const compressedBytes = await pdfDoc.save({ useObjectStreams: false });
 
-    return new File([compressedBytes], file.name, {
+    // pdf-lib returns Uint8Array<ArrayBufferLike>; it is a valid BlobPart at runtime.
+    return new File([compressedBytes as BlobPart], file.name, {
       type: 'application/pdf',
       lastModified: Date.now(),
     });

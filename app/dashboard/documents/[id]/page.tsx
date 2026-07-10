@@ -49,7 +49,10 @@ export default function DocumentViewerPage() {
         .from('document_access')
         .select('granted_to, users!document_access_granted_to_fkey(full_name)')
         .eq('document_id', id);
-      if (aList) setAccessList(aList);
+      // Supabase infers the many-to-one `users` join as an array, but at runtime a
+      // document_access row has exactly one grantee (a single object), which is what
+      // AccessRecord and the render (`access.users?.full_name`) expect.
+      if (aList) setAccessList(aList as unknown as AccessRecord[]);
     };
     fetchAccess();
   }, [id]);
@@ -216,7 +219,7 @@ export default function DocumentViewerPage() {
             setShowShareModal(false);
             // Refresh access list
             supabase.from('document_access').select('granted_to, users!document_access_granted_to_fkey(full_name)').eq('document_id', document.id)
-              .then(({data}) => { if (data) setAccessList(data); });
+              .then(({data}) => { if (data) setAccessList(data as unknown as AccessRecord[]); });
           }} 
         />
       )}

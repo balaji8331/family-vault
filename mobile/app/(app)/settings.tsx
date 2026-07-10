@@ -1,10 +1,9 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, Alert, Clipboard } from 'react-native';
 import { supabase } from '../../lib/supabase';
 import { useVaultStore } from '../../store/vault.store';
 import * as SecureStore from 'expo-secure-store';
 import { router } from 'expo-router';
-import Clipboard from '@react-native-clipboard/clipboard';
 
 export default function SettingsScreen() {
   const currentUser = useVaultStore(s => s.currentUser);

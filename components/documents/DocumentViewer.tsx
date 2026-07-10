@@ -34,6 +34,9 @@ interface DocumentRecord {
   doc_type: string;
   expiry_date: string | null;
   uploaded_at: string;
+  file_size_bytes: number;
+  extracted_name?: string | null;
+  extracted_doc_number?: string | null;
 }
 
 interface DocumentViewerProps {

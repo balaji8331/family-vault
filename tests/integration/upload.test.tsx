@@ -41,7 +41,7 @@ describe('Upload Integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useVaultStore.setState({
-      currentUser: { id: 'test-user', family_id: 'test-family' },
+      currentUser: { id: 'test-user', family_id: 'test-family', role: 'member', full_name: 'Test User', email: 'test@example.com' },
       masterKey: {} as CryptoKey,
     });
   });

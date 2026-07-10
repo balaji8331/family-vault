@@ -1,5 +1,5 @@
 import QuickCrypto from 'react-native-quick-crypto';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Buffer } from 'buffer';
 
 export async function encryptFile(fileUri: string, keyBuffer: ArrayBuffer): Promise<{ encryptedData: Uint8Array; iv: Uint8Array }> {
@@ -28,9 +28,11 @@ export async function decryptFile(encryptedData: Uint8Array, iv: Uint8Array, key
   const authTag = dataBuf.slice(dataBuf.length - authTagLength);
   
   const decipher = QuickCrypto.createDecipheriv('aes-256-gcm', Buffer.from(keyBuffer), Buffer.from(iv));
-  decipher.setAuthTag(authTag);
-  
-  const decrypted1 = decipher.update(ciphertext);
+  // The `buffer` polyfill's Buffer type is structurally incompatible with the Node Buffer
+  // type QuickCrypto declares; both are valid Buffers at runtime. Cast at the boundary.
+  decipher.setAuthTag(authTag as any);
+
+  const decrypted1 = decipher.update(ciphertext as any);
   const decrypted2 = decipher.final();
   
   return new Uint8Array(Buffer.concat([decrypted1, decrypted2]));
@@ -54,8 +56,8 @@ export function unwrapKeyMobile(wrappedKeyBuffer: ArrayBuffer, masterKeyBuffer: 
   const authTag = wrappedBuf.slice(wrappedBuf.length - 16);
   
   const decipher = QuickCrypto.createDecipheriv('aes-256-gcm', Buffer.from(masterKeyBuffer), iv);
-  decipher.setAuthTag(authTag);
-  const d1 = decipher.update(ciphertext);
+  decipher.setAuthTag(authTag as any);
+  const d1 = decipher.update(ciphertext as any);
   const d2 = decipher.final();
   return Buffer.concat([d1, d2]).buffer;
 }

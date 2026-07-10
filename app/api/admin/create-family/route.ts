@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { randomBytes } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseAdmin = createClient(
@@ -25,10 +26,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized. Super Admin only.' }, { status: 403 });
     }
 
-    // 2. Create family (trigger generates family_code)
+    // 2. Create family (trigger generates family_code).
+    // key_seed: family's secret for deriving the shared family key (see lib/crypto.ts).
+    const keySeed = randomBytes(32).toString('base64');
     const { data: newFamily, error: familyError } = await supabaseAdmin
       .from('families')
-      .insert({ name, created_by: adminId })
+      .insert({ name, created_by: adminId, key_seed: keySeed })
       .select()
       .single();
 

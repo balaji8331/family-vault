@@ -142,7 +142,10 @@ export async function revokeShare(
       return { error: 'You do not have permission to revoke access to this document.' };
     }
 
-    // 1. Delete the document_access row
+    // 1. Delete the document_access row. This is the complete revocation: without a
+    //    document_access row the recipient has no wrapped_key for this document and can
+    //    no longer unwrap it. The family key itself is derived per-family and is shared
+    //    for legitimate access to other documents, so it must NOT be destroyed here.
     const { error: accessDeleteError } = await supabaseAdmin
       .from('document_access')
       .delete()
@@ -151,18 +154,11 @@ export async function revokeShare(
 
     if (accessDeleteError) return { error: accessDeleteError.message };
 
-    // 2. Delete recipient's encryption_keys rows for this user
-    // (key_type matching covers any keys they might have been issued for this doc)
-    // Since encryption_keys has no document_id, we clean up by user_id scoped to their access.
-    // The recipient's personal key is in encryption_keys WHERE user_id = recipientId.
-    // We delete it to ensure they cannot reconstruct access via a cached key.
-    await supabaseAdmin
-      .from('encryption_keys')
-      .delete()
-      .eq('user_id', recipientId);
-    // Note: This removes all encryption keys for the user. This is intentionally broad
-    // because encryption_keys has no document_id column to scope the deletion.
-    // The user will re-derive their masterKey on next login.
+    // NOTE: We intentionally do NOT touch the encryption_keys table. The previous
+    // implementation ran `DELETE FROM encryption_keys WHERE user_id = recipient`, which
+    // wiped ALL of the recipient's keys (their master-validation key included) and broke
+    // their entire vault — a severe data-loss bug — while only one document's access was
+    // being revoked. Revoking the document_access row above is sufficient and correct.
 
     // Audit log — no key material in metadata
     await supabaseAdmin.from('audit_logs').insert({

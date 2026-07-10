@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { initializeMasterKey, loadOrCreateFamilyKey, hasMasterValidationKey, setupMasterPassword, verifyMasterPassword } from '@/lib/keys'
+import { initializeMasterKey, loadFamilyKey, hasMasterValidationKey, setupMasterPassword, verifyMasterPassword } from '@/lib/keys'
 import { useVaultStore } from '@/store/vault.store'
 import { supabase } from '@/lib/supabase/client'
 
@@ -90,9 +90,9 @@ export default function KeyInitModal({ onSuccess }: KeyInitModalProps) {
         await verifyMasterPassword(userId, masterKey)
       }
 
-      // 3. Load or create Family Key using the master key
+      // 3. Load the shared family key (derived from the family's key_seed)
       if (familyId) {
-        await loadOrCreateFamilyKey(userId, familyId, masterKey)
+        await loadFamilyKey(familyId)
       }
       
       // 4. Mark session as fully ready

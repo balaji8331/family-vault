@@ -13,7 +13,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { Trash2 } from 'lucide-react';
 
 // Helper to convert an ArrayBuffer to a Base64 string for database storage.
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
+function arrayBufferToBase64(buffer: ArrayBuffer | Uint8Array): string {
   let binary = '';
   const bytes = new Uint8Array(buffer);
   for (let i = 0; i < bytes.byteLength; i++) {

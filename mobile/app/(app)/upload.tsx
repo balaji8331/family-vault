@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from '../../lib/supabase';
 import { useVaultStore } from '../../store/vault.store';
 import { encryptFile } from '../../lib/crypto';
@@ -122,7 +122,7 @@ export default function UploadScreen() {
         family_id: currentUser.family_id,
         file_name: name,
         file_path: filePath,
-        file_size_bytes: fileInfo.size,
+        file_size_bytes: fileInfo.exists ? fileInfo.size : 0,
         mime_type: mimeType,
         iv: Buffer.from(iv).toString('base64'),
         doc_type: selectedDocType,

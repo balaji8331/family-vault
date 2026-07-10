@@ -32,7 +32,7 @@ describe('Audit Module', () => {
   });
 
   it('logAuditEvent reads actor_id from vault store', async () => {
-    useVaultStore.setState({ currentUser: { id: 'custom-actor-id', family_id: 'fam-id', role: 'member' } });
+    useVaultStore.setState({ currentUser: { id: 'custom-actor-id', family_id: 'fam-id', role: 'member', full_name: 'Custom Actor', email: 'actor@example.com' } });
     
     await logAuditEvent('action', 'type', 'id');
     
@@ -42,7 +42,7 @@ describe('Audit Module', () => {
   });
 
   it('logAuditEvent reads family_id from vault store', async () => {
-    useVaultStore.setState({ currentUser: { id: 'custom-actor-id', family_id: 'custom-family-id', role: 'member' } });
+    useVaultStore.setState({ currentUser: { id: 'custom-actor-id', family_id: 'custom-family-id', role: 'member', full_name: 'Custom Actor', email: 'actor@example.com' } });
     
     await logAuditEvent('action', 'type', 'id');
     

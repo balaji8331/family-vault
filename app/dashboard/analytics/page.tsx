@@ -280,7 +280,7 @@ export default function AnalyticsPage() {
                 <Cell fill={storagePercent > 80 ? '#ef4444' : '#2563eb'} />
                 <Cell fill="#e5e7eb" />
               </Pie>
-              <Tooltip formatter={(value: number) => formatBytes(value)} />
+              <Tooltip formatter={(value) => formatBytes(Number(value))} />
             </PieChart>
           </ResponsiveContainer>
           <div className="text-center -mt-16">

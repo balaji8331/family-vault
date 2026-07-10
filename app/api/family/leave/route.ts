@@ -40,7 +40,7 @@ export async function POST(request: Request) {
 
     if (updateError) throw updateError;
 
-    await logAuditEvent('leave_family', 'family', familyId, session.user.id, familyId);
+    await logAuditEvent('leave_family', 'family', familyId, undefined, session.user.id, familyId);
 
     return NextResponse.json({ success: true });
 
