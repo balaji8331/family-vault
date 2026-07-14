@@ -7,9 +7,13 @@
 -- a freshly generated seed. NOTE: documents shared under the old (broken) per-user key
 -- scheme cannot be recovered by the new derivation — only new shares will decrypt.
 
+-- gen_random_bytes() lives in the pgcrypto extension (Supabase installs it in the
+-- `extensions` schema, which is not always on the search_path — so qualify it explicitly).
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+
 ALTER TABLE families ADD COLUMN IF NOT EXISTS key_seed text;
 
 -- Backfill any existing families that predate this column.
 UPDATE families
-SET key_seed = encode(gen_random_bytes(32), 'base64')
+SET key_seed = encode(extensions.gen_random_bytes(32), 'base64')
 WHERE key_seed IS NULL;
