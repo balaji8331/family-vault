@@ -24,7 +24,7 @@ const ResponsiveContainer = dynamic(() => import('recharts').then(mod => mod.Res
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#a855f7', '#ec4899'];
 
-export default function AnalyticsPage() {
+function AnalyticsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const currentUser = useVaultStore((state) => state.currentUser);
@@ -291,4 +291,12 @@ export default function AnalyticsPage() {
       </div>
     </div>
   );
+}
+
+export default function AnalyticsPage() {
+  return (
+    <React.Suspense fallback={<div className="p-8 flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div></div>}>
+      <AnalyticsContent />
+    </React.Suspense>
+  )
 }
